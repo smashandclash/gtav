@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Smash&amp;Clash strike</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        width: 512px;
+        height: 512px;
+        overflow: hidden;
+        background: transparent;
+      }
+      img {
+        width: 512px;
+        height: 512px;
+        object-fit: contain;
+      }
+    </style>
+  </head>
+  <body>
+    <img id="art" alt="" />
+    <script>
+      // The character drawing the table shows over an attack: the resource sends which one.
+      window.addEventListener('message', (e) => {
+        const m = e.data;
+        if (m && m.type === 'art') document.getElementById('art').src = m.src || '';
+      });
+    </script>
+  </body>
+</html>

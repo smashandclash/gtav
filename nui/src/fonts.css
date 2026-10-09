@@ -1,0 +1,17 @@
+/* The game faces, bundled with the resource. */
+@font-face {
+  font-family: 'Luckiest Guy';
+  src: url('./fonts/LuckiestGuy-Regular.ttf') format('truetype');
+  font-display: block;
+}
+@font-face {
+  font-family: 'Lilita One';
+  src: url('./fonts/LilitaOne.woff2') format('woff2');
+  font-display: block;
+}
+@font-face {
+  font-family: 'Rubik';
+  src: url('./fonts/Rubik.woff2') format('woff2');
+  font-weight: 300 900;
+  font-display: block;
+}
