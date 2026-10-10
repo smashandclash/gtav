@@ -178,6 +178,31 @@ export class UI implements Animator {
    * What the player did in the game while playing (the page has no mouse then): scroll through the
    * hand, click (a tile looked at, or the card picked), cancel, stay, open the menu.
    */
+  private aim: { kind: 'tile' | 'hand'; cell?: string; index?: number } | null = null;
+
+  /**
+   * What the dot is on, from the game: the dot shows whether a click does something there (a
+   * card to pick up, a tile the picked card can go to, a tile it cannot), with a soft tick as
+   * it lands on somewhere useful.
+   */
+  aimAt(hit: { kind: 'tile' | 'hand'; cell?: string; index?: number } | null): void {
+    this.aim = hit;
+    const state = this.aimState();
+    const dot = this.screenEl.querySelector<HTMLElement>('.reticle');
+    if (!dot || dot.dataset.state === state) return;
+    dot.dataset.state = state;
+    if (state === 'place' || state === 'card') this.sound.sfx('hover');
+  }
+
+  private aimState(): string {
+    const ctl = this.ctl;
+    const hit = this.aim;
+    if (!hit || !ctl.canPlay) return '';
+    if (hit.kind === 'hand') return 'card';
+    if (this.targets().has(hit.cell!)) return 'place';
+    return this.selected != null ? 'no' : '';
+  }
+
   fromGame(action: string, arg?: string | number): void {
     const ctl = this.ctl;
     const view = ctl.game?.view;
@@ -487,6 +512,7 @@ export class UI implements Animator {
     }
 
     this.updatePrompt();
+    this.aimAt(this.aim);
     this.postView();
     this.updateResult();
   }

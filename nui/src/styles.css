@@ -1043,6 +1043,33 @@ body.playing .hud {
 body.playing .reticle {
   opacity: 0.9;
 }
+/* on something a click acts on, the dot grows into a ring in that thing's colour */
+.reticle {
+  transition: opacity 160ms var(--out), transform 160ms var(--out), background-color 160ms var(--out), box-shadow 160ms var(--out);
+}
+.reticle[data-state='card'] {
+  transform: scale(1.6);
+  background: var(--sc-color-sun, #ffc21a);
+}
+.reticle[data-state='place'] {
+  transform: scale(2);
+  background: transparent;
+  box-shadow:
+    0 0 0 calc(var(--u) * 0.14) #ffc21a,
+    0 0 calc(var(--u) * 0.9) rgb(255 194 26 / 0.7);
+}
+.reticle[data-state='no'] {
+  transform: scale(1.3);
+  background: #ff5454;
+}
+@media (prefers-reduced-motion: reduce) {
+  .reticle {
+    transition: opacity 160ms linear;
+  }
+}
+.reduce-motion .reticle {
+  transition: opacity 160ms linear;
+}
 
 /* what you can do now, along the bottom */
 .prompt {

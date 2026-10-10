@@ -184,6 +184,7 @@ local PLAY_KEYS = {
   { 200, 'menu' }, { 199, 'menu' }, { 177, 'menu' },
   { 157, 'key', '1' }, { 158, 'key', '2' }, { 160, 'key', '3' }, { 164, 'key', '4' }, { 165, 'key', '5' },
 }
+local lastAim = ''
 local BLOCK = { 14, 15, 16, 17, 22, 24, 25, 37, 140, 141, 142, 143, 157, 158, 160, 164, 165, 177, 199, 200, 257, 263, 264 }
 
 CreateThread(function()
@@ -191,6 +192,12 @@ CreateThread(function()
     if Tables.seated() and panelOpen and not focused then
       for _, c in ipairs(BLOCK) do DisableControlAction(0, c, true) end
       local hit = Tables.pick(0.5, 0.5)
+      -- tell the page what the dot is on, when it changes, so the dot can show it
+      local aim = hit and (hit.kind == 'tile' and ('tile:' .. hit.cell) or ('hand:' .. hit.index)) or ''
+      if aim ~= lastAim then
+        lastAim = aim
+        send({ type = 'aim', kind = hit and hit.kind or nil, cell = hit and hit.cell or nil, index = hit and hit.index or nil })
+      end
       for _, k in ipairs(PLAY_KEYS) do
         if IsDisabledControlJustPressed(0, k[1]) then
           local action, arg = k[2], k[3]

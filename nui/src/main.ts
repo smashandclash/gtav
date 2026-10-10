@@ -50,6 +50,10 @@ async function start(): Promise<void> {
         // playing by looking: what the player did, from the game
         ui.fromGame(m.action, m.arg);
         break;
+      case 'aim':
+        // what the dot in the middle of the view is on
+        ui.aimAt(m.kind === 'tile' ? { kind: 'tile', cell: m.cell } : m.kind === 'hand' ? { kind: 'hand', index: m.index } : null);
+        break;
       case 'pad':
         if (ctl.visible) ui.nav.pad(m.button);
         break;

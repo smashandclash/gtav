@@ -24,6 +24,7 @@ export type GameMessage =
   | { type: 'tableDeclined'; from: string }
   | { type: 'pad'; button: PadButton }
   | { type: 'input'; action: string; arg?: string | number }
+  | { type: 'aim'; kind?: 'tile' | 'hand'; cell?: string; index?: number }
   | { type: 'nearby'; tables: Array<{ id: string; game: string | null; flip: boolean }> };
 
 export type PadButton = 'up' | 'down' | 'left' | 'right' | 'accept' | 'back' | 'lb' | 'rb';

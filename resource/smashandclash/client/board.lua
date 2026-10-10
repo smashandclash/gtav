@@ -19,6 +19,7 @@ local BLUE = { 33, 115, 232 }
 local ORANGE = { 244, 88, 31 }
 local MINT = { 139, 247, 207 }
 local SUN = { 255, 194, 26 }
+local RED = { 255, 84, 84 }
 local ICE = { 190, 235, 255 }
 local WHITE = { 255, 255, 255 }
 
@@ -359,12 +360,30 @@ function Board:draw(R, now)
         sprite(R, self:quad(bx, by, T + 0.03, self.W * 0.19, self.W * 0.19, yaw), R.glyph(p.boost >= 2 and 'plus2' or 'plus1'), p.rgb or WHITE, 255)
       end
       if v and v.ruleset == 'mutators' and OVERRUN[cell] then sprite(R, self:quad(x, y, T + 0.0022, tw * 0.9, th * 0.9, yaw), R.glyph('zone'), { 190, 160, 110 }, 150) end
+      local hovered = self.hover and self.hover.kind == 'tile' and self.hover.cell == cell
       if targets[cell] then
         local col = picked[cell] and SUN or MINT
         local a = picked[cell] and 230 or math.floor(130 + 110 * pulse)
-        if self.hover and self.hover.kind == 'tile' and self.hover.cell == cell then a = 255 end
-        sprite(R, self:quad(x, y, T + 0.0026, tw * 1.08, th * 1.06, yaw), R.glyph('rim'), col, a)
-        sprite(R, self:quad(x, y, T + 0.0024, tw * 1.25, th * 1.2, yaw), R.glyph('glow'), col, math.floor(a * 0.45))
+        if hovered then
+          -- the tile you are on, and the card can go there: a bright, breathing outline in sun
+          -- yellow, a second ring just outside it and a strong glow, so it reads at a glance
+          local k = 1 + 0.035 * math.sin(now / 120)
+          sprite(R, self:quad(x, y, T + 0.0024, tw * 1.45 * k, th * 1.38 * k, yaw), R.glyph('glow'), SUN, 230)
+          sprite(R, self:quad(x, y, T + 0.0027, tw * 1.16 * k, th * 1.13 * k, yaw), R.glyph('rim'), SUN, 255)
+          sprite(R, self:quad(x, y, T + 0.0028, tw * 1.07, th * 1.05, yaw), R.glyph('rim'), WHITE, 255)
+          sprite(R, self:quad(x, y, T + 0.0021, tw, th, yaw), R.glyph('tile'), SUN, 70)
+        else
+          sprite(R, self:quad(x, y, T + 0.0026, tw * 1.08, th * 1.06, yaw), R.glyph('rim'), col, a)
+          sprite(R, self:quad(x, y, T + 0.0024, tw * 1.25, th * 1.2, yaw), R.glyph('glow'), col, math.floor(a * 0.45))
+        end
+      elseif hovered and ui and ui.myTurn then
+        if ui.selected ~= nil then
+          -- a card is picked but cannot go here: a red edge says no
+          sprite(R, self:quad(x, y, T + 0.0026, tw * 1.06, th * 1.04, yaw), R.glyph('rim'), RED, 200)
+        else
+          -- nothing picked yet: a soft outline shows what the dot is on
+          sprite(R, self:quad(x, y, T + 0.0026, tw * 1.05, th * 1.03, yaw), R.glyph('rim'), WHITE, 120)
+        end
       end
       -- the tile you look at with a card picked: the card waits over it, see-through, before you place it
       if targets[cell] and ui and ui.selected ~= nil and v.myHand and self.hover and self.hover.kind == 'tile' and self.hover.cell == cell then
