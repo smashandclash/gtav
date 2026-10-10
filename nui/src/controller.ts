@@ -491,8 +491,10 @@ function previousState(s: { state: SeatState; moves: SeatMove[] }): SeatState {
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export function errorText(e: unknown): string {
-  const err = e as { message?: string; hint?: string; quiet?: boolean };
+  const err = e as { message?: string; hint?: string; quiet?: boolean; status?: number };
   const msg = err?.message || String(e);
+  // the site's firewall is asking this connection to slow down: it lifts by itself in minutes
+  if (/challenge|security checkpoint/i.test(msg) || (err?.status === 403 && /vercel/i.test(msg))) return 'smashandclash.in asked this connection to slow down for a few minutes. Try again shortly.';
   if (/failed to fetch|networkerror|load failed/i.test(msg) || isNetworkError(e)) return 'Could not reach smashandclash.in. Check your connection and try again.';
   return err?.hint ? `${msg} ${err.hint}` : msg;
 }

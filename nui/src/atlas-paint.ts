@@ -4,9 +4,9 @@
 
 import { SmashAndClash } from '@smashandclash/sdk';
 import './fonts.css';
+import { art } from './art';
 import { ATLAS, EMPTY_SLOT, GLYPH, GLYPHS, LABEL, LABELS, SLAB_SLOT, cardSlots, slotRect } from './atlas-spec';
 
-const SITE = 'https://www.smashandclash.in';
 let g: CanvasRenderingContext2D;
 
 function rounded(x: number, y: number, w: number, h: number, r: number): void {
@@ -166,7 +166,7 @@ async function board(): Promise<void> {
   shade.addColorStop(0.18, 'rgba(120,95,55,0)');
   g.fillStyle = shade;
   g.fillRect(e.x, e.y, e.w, e.h);
-  const logo = await load(`${SITE}/logo.svg`);
+  const logo = await load(art.logo);
   if (logo) {
     const w = e.w * 0.66;
     const hgt = (w * logo.naturalHeight) / (logo.naturalWidth || 1);
@@ -197,8 +197,10 @@ export async function paintAtlas(canvas: HTMLCanvasElement): Promise<void> {
   glyphs();
   await board();
   const sc = new SmashAndClash({ client: 'fivem' });
-  const [cards, kit] = await Promise.all([sc.cards(), sc.assets().catch(() => null)]);
+  const cards = await sc.cards();
   const slots = cardSlots(cards.map((c) => c.id));
-  await Promise.all([...cards.map((c) => card(slots.get(c.id)!, c.image)), card(cards.length, kit?.card.back ?? `${SITE}/Card_Back_v2.png`)]);
+  // the art ships with the resource (tools/vendor-cards.mjs): one join, no burst of image requests
+  for (let i = 0; i < cards.length; i += 8) await Promise.all(cards.slice(i, i + 8).map((c) => card(slots.get(c.id)!, art.card(c.id))));
+  await card(cards.length, art.back);
 }
 

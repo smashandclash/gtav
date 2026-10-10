@@ -7,10 +7,10 @@ import { Sound } from './audio';
 import { openInBrowser, post } from './bridge';
 import { Controller, type Animator } from './controller';
 import { completed, handKey, movesFor, nextTargets, parseMove, type ParsedMove } from './moves';
+import { art } from './art';
 import { Nav } from './nav';
 import { stepsFor, tableView, type Step } from './view';
 
-const SITE = 'https://www.smashandclash.in';
 
 type Sheet = null | 'friend' | 'rules' | 'settings' | 'resign';
 
@@ -164,7 +164,7 @@ export class UI implements Animator {
     return h(
       'div',
       { class: 'panel waiting' },
-      h('img', { class: 'logo', src: `${SITE}/logo.svg`, alt: 'Smash&Clash', style: { width: '46%' } }),
+      h('img', { class: 'logo', src: art.logo, alt: 'Smash&Clash', style: { width: '46%' } }),
       h('p', {}, h('span', { class: 'dots', text: 'Shuffling the deck' })),
     );
   }
@@ -190,7 +190,7 @@ export class UI implements Animator {
     return h(
       'div',
       { class: 'panel lobby' },
-      h('img', { class: 'logo', src: ctl.kit?.brand.logo ?? `${SITE}/logo.svg`, alt: 'Smash&Clash' }),
+      h('img', { class: 'logo', src: art.logo, alt: 'Smash&Clash' }),
       plate,
       this.refs.tableStrip,
       this.refs.play,
@@ -241,7 +241,7 @@ export class UI implements Animator {
 
   private buildWaiting(): HTMLElement {
     const ctl = this.ctl;
-    const back = ctl.kit?.card.back ?? `${SITE}/Card_Back_v2.png`;
+    const back = art.back;
     const cancel = h('button', { class: 'candy', 'data-first': true, onclick: () => void ctl.resign() }, h('span', { text: 'Cancel' }));
     if (ctl.mode === 'room') {
       const code = ctl.game?.code ?? '';
@@ -306,7 +306,7 @@ export class UI implements Animator {
         'div',
         { class: 'hud-top' },
         them,
-        h('div', { class: 'hud-right' }, this.refs.turn, h('div', { class: 'deck' }, h('img', { src: ctl.kit?.card.back ?? `${SITE}/Card_Back_v2.png`, alt: '' }), this.refs.deckCount), this.refs.mode),
+        h('div', { class: 'hud-right' }, this.refs.turn, h('div', { class: 'deck' }, h('img', { src: art.back, alt: '' }), this.refs.deckCount), this.refs.mode),
       ),
       h('div', { class: 'hud-bottom' }, you, h('div', { class: 'hand-wrap' }, this.refs.tileRow, this.handEl), h('div', { class: 'actions-col' }, this.refs.stay, this.refs.camera, this.refs.resign)),
       this.refs.does,
@@ -471,7 +471,7 @@ export class UI implements Animator {
           return h(
             'button',
             { class: `hand-card${fresh && !before.has(id) ? ' drawn' : ''}`, 'data-key': `hand:${id}`, 'aria-label': info?.name ?? 'card', onclick: () => this.clickHand(i) },
-            h('img', { src: info?.image ?? '', alt: '' }),
+            h('img', { src: art.card(id), alt: '' }),
             h('span', { class: 'key', text: String(i + 1) }),
           );
         }),

@@ -26,4 +26,5 @@ files {
   'html/atlas.html',
   'html/fx.html',
   'html/assets/*',
+  'html/cards/*',
 }
