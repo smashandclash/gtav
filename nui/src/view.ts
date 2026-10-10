@@ -13,6 +13,7 @@ export interface TableState {
   powerTiles?: Array<{ cell: { r: number; c: number }; color: string; boost: number }>;
   current: Seat;
   gameOver: boolean;
+  deck?: number;
   /** The seat's own hand (card ids) and the other's count, or both counts for a spectator. */
   hand?: number[];
   opponentHand?: number;
@@ -26,6 +27,8 @@ export interface ViewUI {
   selected: number | null;
   /** By hand position: nothing to do with this card now. */
   dead: boolean[];
+  /** First person: your cards stand at your edge of the table instead of on screen. */
+  hand3d?: boolean;
 }
 
 export interface TableView {
@@ -39,6 +42,8 @@ export interface TableView {
   chess: Array<{ cell: string; piece: string }>;
   power: Array<{ cell: string; color: string; boost: number; rgb: [number, number, number] }>;
   hands: { A: number; B: number };
+  /** Cards left to draw: the stack on the stand beside the board. */
+  deck: number;
   myHand?: number[];
   current: Seat | null;
   names: { A: string; B: string };
@@ -114,6 +119,7 @@ export function tableView(i: ViewInput): TableView {
     chess: (s.operatorTiles ?? []).map((t) => ({ cell: cellOf(t.cell)!, piece: t.piece.toLowerCase() })),
     power: (s.powerTiles ?? []).map((t) => ({ cell: cellOf(t.cell)!, color: t.color, boost: t.boost, rgb: hexRGB(i.colors[t.color] ?? '#ffffff') })),
     hands,
+    deck: s.deck ?? 0,
     myHand: i.viewer ? s.hand : undefined,
     current: s.gameOver || i.over ? null : s.current,
     names: { A: seatName(id, 'A', i.players, i.kinds), B: seatName(id, 'B', i.players, i.kinds) },

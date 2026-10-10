@@ -191,14 +191,17 @@ export async function createSim(canvas: HTMLCanvasElement): Promise<Sim> {
 
   const call = (name: string, ...args: unknown[]) => (lua.global.get(name) as (...a: unknown[]) => unknown)(...args);
   return {
-    view: (table, view) => call('setView', table, view ?? null),
-    move: (table, steps, view) => call('animate', table, steps, view ?? null, performance.now()),
-    pick: (x, y) => call('pick', x, y) ?? false,
+    view: (table, view) => call('setView', table, JSON.stringify(view ?? null)),
+    move: (table, steps, view) => call('animate', table, JSON.stringify(steps ?? []), JSON.stringify(view ?? null), performance.now()),
+    pick: (x, y) => {
+      const hit = call('pick', x, y) as { kind?: string; cell?: string; index?: number } | null | undefined;
+      return hit && hit.kind ? { kind: hit.kind, cell: hit.cell, index: hit.index } : false;
+    },
     camera: (m) => {
       mode = m ?? (mode === 'seat' ? 'first' : mode === 'first' ? 'top' : 'seat');
       place();
       return mode;
     },
-    cards: (ids) => call('setCards', ids),
+    cards: (ids) => call('setCards', JSON.stringify(ids)),
   };
 }

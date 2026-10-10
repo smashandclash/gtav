@@ -4,7 +4,7 @@
 
 import { SmashAndClash } from '@smashandclash/sdk';
 import './fonts.css';
-import { ATLAS, GLYPH, GLYPHS, cardSlots, slotRect } from './atlas-spec';
+import { ATLAS, EMPTY_SLOT, GLYPH, GLYPHS, LABEL, LABELS, SLAB_SLOT, cardSlots, slotRect } from './atlas-spec';
 
 const SITE = 'https://www.smashandclash.in';
 let g: CanvasRenderingContext2D;
@@ -132,12 +132,70 @@ function glyphs(): void {
   });
 }
 
+/** The board itself, as the website draws it: cream wood, cream tiles with the logo pressed in. */
+async function board(): Promise<void> {
+  const slab = slotRect(SLAB_SLOT);
+  g.save();
+  rounded(slab.x, slab.y, slab.w, slab.h, 18);
+  g.clip();
+  g.fillStyle = '#eadbbd';
+  g.fillRect(slab.x, slab.y, slab.w, slab.h);
+  // a soft grain
+  for (let i = 0; i < 26; i++) {
+    const y = slab.y + (i + 0.5) * (slab.h / 26) + Math.sin(i * 1.7) * 2;
+    g.strokeStyle = i % 3 ? 'rgba(160,130,85,0.07)' : 'rgba(255,255,255,0.18)';
+    g.lineWidth = 2;
+    g.beginPath();
+    g.moveTo(slab.x, y);
+    g.bezierCurveTo(slab.x + slab.w * 0.3, y + 3, slab.x + slab.w * 0.7, y - 3, slab.x + slab.w, y + 1);
+    g.stroke();
+  }
+  g.restore();
+
+  const e = slotRect(EMPTY_SLOT);
+  g.save();
+  rounded(e.x + 3, e.y + 3, e.w - 6, e.h - 6, 18);
+  g.fillStyle = '#efe3c9';
+  g.fill();
+  g.lineWidth = 5;
+  g.strokeStyle = '#d8c59f';
+  g.stroke();
+  g.clip();
+  const shade = g.createLinearGradient(0, e.y, 0, e.y + e.h);
+  shade.addColorStop(0, 'rgba(120,95,55,0.16)');
+  shade.addColorStop(0.18, 'rgba(120,95,55,0)');
+  g.fillStyle = shade;
+  g.fillRect(e.x, e.y, e.w, e.h);
+  const logo = await load(`${SITE}/logo.svg`);
+  if (logo) {
+    const w = e.w * 0.66;
+    const hgt = (w * logo.naturalHeight) / (logo.naturalWidth || 1);
+    g.globalAlpha = 0.22;
+    g.filter = 'grayscale(1) sepia(0.7) brightness(0.85)';
+    g.drawImage(logo, e.x + (e.w - w) / 2, e.y + (e.h - hgt) / 2, w, hgt);
+    g.filter = 'none';
+    g.globalAlpha = 1;
+  }
+  g.restore();
+
+  g.font = `${LABEL.size * 0.82}px "Luckiest Guy", "Arial Black", sans-serif`;
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  g.fillStyle = '#4a3b26';
+  LABELS.forEach((t, k) => {
+    const x = LABEL.x + (k % LABEL.cols) * LABEL.stride;
+    const y = LABEL.y + Math.floor(k / LABEL.cols) * LABEL.stride;
+    g.fillText(t, x + LABEL.size / 2, y + LABEL.size / 2 + 3);
+  });
+}
+
 /** Paint the whole atlas onto a 2048 x 2048 canvas. */
 export async function paintAtlas(canvas: HTMLCanvasElement): Promise<void> {
   g = canvas.getContext('2d')!;
   g.clearRect(0, 0, ATLAS, ATLAS);
   await document.fonts.load(`40px "Luckiest Guy"`).catch(() => {});
   glyphs();
+  await board();
   const sc = new SmashAndClash({ client: 'fivem' });
   const [cards, kit] = await Promise.all([sc.cards(), sc.assets().catch(() => null)]);
   const slots = cardSlots(cards.map((c) => c.id));

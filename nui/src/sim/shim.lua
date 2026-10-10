@@ -6,6 +6,12 @@ local CARD = { w = 224, h = 306, sx = 227, sy = 310, cols = 9 }
 local GLYPH = { size = 128, stride = 130, y = 1880 }
 local GLYPHS = { tile = 0, rim = 1, knight = 2, bishop = 3, rook = 4, queen = 5, plus1 = 6, plus2 = 7, ice = 8, glow = 9, zone = 10, shadow = 11, dot = 12 }
 
+
+-- the board's wood and an empty tile sit in two free card slots; the edge labels beside the strip
+local BOARD_SLOTS = { slab = 52, empty = 53 }
+local LABEL = { size = 64, stride = 70, x = 1700, y = 1880, cols = 5 }
+local LABELS = { A = 0, B = 1, C = 2, D = 3, E = 4, ['1'] = 5, ['2'] = 6, ['3'] = 7 }
+
 local slots, backSlot = {}, 51
 local current = 0
 local buf, n = {}, 0
@@ -18,12 +24,100 @@ local function uv(x, y, w, h)
   return { (x + 0.5) / ATLAS, (y + 0.5) / ATLAS, (x + w - 0.5) / ATLAS, (y + h - 0.5) / ATLAS }
 end
 
+-- FiveM's json.decode, for the preview: JSON null becomes nil, arrays count from 1.
+json = {}
+function json.decode(text)
+  local i = 1
+  local function ws() i = text:find('[^ \t\r\n]', i) or #text + 1 end
+  local value
+  local function str()
+    local out, j = {}, i + 1
+    while true do
+      local c = text:sub(j, j)
+      if c == '"' then break end
+      if c == '\\' then
+        local e = text:sub(j + 1, j + 1)
+        if e == 'u' then
+          local code = tonumber(text:sub(j + 2, j + 5), 16)
+          out[#out + 1] = utf8.char(code)
+          j = j + 6
+        else
+          local map = { b = '\b', f = '\f', n = '\n', r = '\r', t = '\t' }
+          out[#out + 1] = map[e] or e
+          j = j + 2
+        end
+      else
+        out[#out + 1] = c
+        j = j + 1
+      end
+    end
+    i = j + 1
+    return table.concat(out)
+  end
+  function value()
+    ws()
+    local c = text:sub(i, i)
+    if c == '{' then
+      local t = {}
+      i = i + 1
+      ws()
+      if text:sub(i, i) == '}' then i = i + 1 return t end
+      while true do
+        ws()
+        local k = str()
+        ws()
+        i = i + 1 -- :
+        t[k] = value()
+        ws()
+        local d = text:sub(i, i)
+        i = i + 1
+        if d == '}' then return t end
+      end
+    elseif c == '[' then
+      local t, n = {}, 0
+      i = i + 1
+      ws()
+      if text:sub(i, i) == ']' then i = i + 1 return t end
+      while true do
+        n = n + 1
+        t[n] = value()
+        ws()
+        local d = text:sub(i, i)
+        i = i + 1
+        if d == ']' then return t end
+      end
+    elseif c == '"' then
+      return str()
+    elseif text:sub(i, i + 3) == 'true' then i = i + 4 return true
+    elseif text:sub(i, i + 4) == 'false' then i = i + 5 return false
+    elseif text:sub(i, i + 3) == 'null' then i = i + 4 return nil
+    else
+      local num = text:match('^-?%d+%.?%d*[eE]?[-+]?%d*', i)
+      i = i + #num
+      return tonumber(num)
+    end
+  end
+  return value()
+end
+
 R = {}
 
 function R.card(id)
   current = 0
   local slot = id == 'back' and backSlot or (slots[id] or backSlot)
   return uv((slot % CARD.cols) * CARD.sx, (slot // CARD.cols) * CARD.sy, CARD.w, CARD.h)
+end
+
+function R.board(name)
+  current = 0
+  local slot = BOARD_SLOTS[name]
+  return uv((slot % CARD.cols) * CARD.sx, (slot // CARD.cols) * CARD.sy, CARD.w, CARD.h)
+end
+
+function R.label(ch)
+  current = 0
+  local k = LABELS[ch] or 0
+  return uv(LABEL.x + (k % LABEL.cols) * LABEL.stride, LABEL.y + (k // LABEL.cols) * LABEL.stride, LABEL.size, LABEL.size)
 end
 
 function R.glyph(name)
@@ -69,7 +163,8 @@ local board = Board.new({ x = 0, y = 0, z = 0 }, 0, CARD_H)
 local _, ey = board:extents()
 EY = ey
 
-function setCards(ids)
+function setCards(text)
+  local ids = json.decode(text)
   local list = {}
   for i = 1, #ids do list[i] = ids[i] end
   table.sort(list)
@@ -78,11 +173,12 @@ function setCards(ids)
   backSlot = #list
 end
 
-function setView(_, view)
-  board:setView(view)
+function setView(_, text)
+  board:setView(json.decode(text))
 end
 
 function animate(_, steps, view, now)
+  steps, view = json.decode(steps), json.decode(view)
   if view then board:setView(view) end
   board:animate(steps, now)
 end

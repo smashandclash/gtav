@@ -9,6 +9,12 @@ local CARD = { w = 224, h = 306, sx = 227, sy = 310, cols = 9 }
 local GLYPH = { size = 128, stride = 130, y = 1880 }
 local GLYPHS = { tile = 0, rim = 1, knight = 2, bishop = 3, rook = 4, queen = 5, plus1 = 6, plus2 = 7, ice = 8, glow = 9, zone = 10, shadow = 11, dot = 12 }
 
+
+-- the board's wood and an empty tile sit in two free card slots; the edge labels beside the strip
+local BOARD_SLOTS = { slab = 52, empty = 53 }
+local LABEL = { size = 64, stride = 70, x = 1700, y = 1880, cols = 5 }
+local LABELS = { A = 0, B = 1, C = 2, D = 3, E = 4, ['1'] = 5, ['2'] = 6, ['3'] = 7 }
+
 local TXD = 'snc_txd'
 local slots = {} -- card id -> atlas slot
 local backSlot = 51
@@ -81,6 +87,17 @@ function Render.card(id)
   current = 'atlas'
   if id == 'back' then return slotUV(backSlot) end
   return slotUV(slots[id] or backSlot)
+end
+
+function Render.board(name)
+  current = 'atlas'
+  return slotUV(BOARD_SLOTS[name])
+end
+
+function Render.label(ch)
+  current = 'atlas'
+  local k = LABELS[ch] or 0
+  return uv(LABEL.x + (k % LABEL.cols) * LABEL.stride, LABEL.y + (k // LABEL.cols) * LABEL.stride, LABEL.size, LABEL.size)
 end
 
 function Render.glyph(name)

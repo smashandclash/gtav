@@ -439,11 +439,13 @@ export class UI implements Animator {
         picked: this.path,
         selected: this.selected,
         dead: (view?.hand ?? []).map((c) => myTurn && !legal.some((n) => parseMove(n).key === handKey(c))),
+        hand3d: this.camMode === 'first',
       },
     });
     const text = JSON.stringify(v);
     if (text === this.lastView) return;
     this.lastView = text;
+    if (import.meta.env.DEV) (window as unknown as { __sncView: unknown }).__sncView = v;
     void post('view', { table: t.id, view: v });
   }
 
@@ -815,6 +817,7 @@ export class UI implements Animator {
         viewer: seat,
         flip: t.seat !== seat,
         colors: ctl.kit?.colors ?? {},
+        ui: { myTurn: false, targets: [], picked: [], selected: null, dead: [], hand3d: this.camMode === 'first' },
       });
       this.lastView = JSON.stringify(v);
       void post('move', { table: t.id, steps, view: v });

@@ -51,9 +51,8 @@ async function start(): Promise<void> {
     const canvas = document.createElement('canvas');
     canvas.className = 'sim';
     document.body.prepend(canvas);
-    const { createSim } = await import('./sim/sim');
-    const sim = await createSim(canvas);
-    setStandIn((event, d) => {
+    const sim = import.meta.env.DEV ? await (await import('./sim/sim')).createSim(canvas) : null;
+    if (sim) setStandIn((event, d) => {
       if (event === 'view') return sim.view(String(d.table), d.view), { ok: true };
       if (event === 'move') return sim.move(String(d.table), d.steps as unknown[], d.view), { ok: true };
       if (event === 'pointer') return { hit: sim.pick(Number(d.x), Number(d.y)) };
