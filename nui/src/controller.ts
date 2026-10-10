@@ -14,6 +14,7 @@ import {
   type SeatState,
 } from '@smashandclash/sdk';
 import { post, type TableContext } from './bridge';
+import { loadDeck, loadKit, loadRules } from './kit';
 import { houseStrength, nextRating, seatName, clientLabel } from './moves';
 import { saveProfile, type GameMode, type Profile } from './profile';
 
@@ -157,7 +158,8 @@ export class Controller {
 
   async boot(name: string): Promise<void> {
     this.name = name.trim().slice(0, 24) || 'Player';
-    const [cards, kit] = await Promise.all([this.sc.cards(), this.sc.assets().catch(() => null)]);
+    // the deck and the kit ship with the resource: the SDK is only for the games
+    const [cards, kit] = await Promise.all([loadDeck(), loadKit().catch(() => null)]);
     this.cards = new Map(cards.map((c) => [c.id, c]));
     this.kit = kit;
     const active = this.profile.active;
@@ -177,7 +179,7 @@ export class Controller {
   }
 
   async loadRules(): Promise<void> {
-    if (!this.rulesText) this.rulesText = await this.sc.rules();
+    if (!this.rulesText) this.rulesText = await loadRules();
     this.emit();
   }
 

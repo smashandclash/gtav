@@ -11,6 +11,7 @@
   },
   "scripts": {
     "dev": "vite",
+    "assets": "node tools/vendor-assets.mjs",
     "build": "tsc --noEmit && vite build",
     "test": "vitest run",
     "check": "tsc --noEmit && vitest run && node tools/check-lua.mjs"

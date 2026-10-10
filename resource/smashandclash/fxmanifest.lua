@@ -21,10 +21,7 @@ server_script 'server/main.lua'
 
 ui_page 'html/index.html'
 
+-- the page, its scripts, and the art and sound the game ships (nothing loads from the website)
 files {
-  'html/index.html',
-  'html/atlas.html',
-  'html/fx.html',
-  'html/assets/*',
-  'html/cards/*',
+  'html/**/*',
 }

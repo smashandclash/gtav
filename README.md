@@ -57,6 +57,10 @@ npm run check
 
 Type-checks, runs the tests (the server script runs in Lua with FiveM's functions stubbed) and compiles every Lua file. `npm run build` writes the page into `resource/smashandclash/html`.
 
+### The art and sound
+
+The resource ships everything it shows and plays: card faces, strike drawings, music, effects, the announcer and one take of each character line (about 26 MB, downloaded once by each player). `npm run assets` copies them from the game's asset folder (`SNC_ASSETS`, by default `C:/PROJECTS/Smash&Clash/fable/assets`) into `nui/public`, with the deck and the sound list from the SDK. In game, the page talks to smashandclash.in only through the SDK, to play.
+
 ## How it fits together
 
 | Part | Does |

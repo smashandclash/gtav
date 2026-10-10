@@ -1,8 +1,8 @@
-// Paints the atlas (atlas-paint.ts) the 3D table samples (see atlas-spec.ts): the real card faces from the SDK's
-// card list, the real card back, and white sprites the table tints (tiles, owner rims, chess
+// Paints the atlas the 3D table samples (see atlas-spec.ts): the real card faces from the deck the
+// resource ships, the real card back, and white sprites the table tints (tiles, owner rims, chess
 // pieces, power badges, ice, glow).
 
-import { SmashAndClash } from '@smashandclash/sdk';
+import { loadDeck } from './kit';
 import './fonts.css';
 import { art } from './art';
 import { ATLAS, EMPTY_SLOT, GLYPH, GLYPHS, LABEL, LABELS, SLAB_SLOT, cardSlots, slotRect } from './atlas-spec';
@@ -196,8 +196,7 @@ export async function paintAtlas(canvas: HTMLCanvasElement): Promise<void> {
   await document.fonts.load(`40px "Luckiest Guy"`).catch(() => {});
   glyphs();
   await board();
-  const sc = new SmashAndClash({ client: 'fivem' });
-  const cards = await sc.cards();
+  const cards = await loadDeck();
   const slots = cardSlots(cards.map((c) => c.id));
   // the art ships with the resource (tools/vendor-cards.mjs): one join, no burst of image requests
   for (let i = 0; i < cards.length; i += 8) await Promise.all(cards.slice(i, i + 8).map((c) => card(slots.get(c.id)!, art.card(c.id))));

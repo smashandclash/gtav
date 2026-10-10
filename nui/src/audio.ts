@@ -1,5 +1,5 @@
 // The game's own music, effects, announcer and character voices, from the SDK's kit
-// (sc.assets().audio). Music follows the screen; voices play one at a time, the most important
+// (the kit the resource ships, kit/kit.json). Music follows the screen; voices play one at a time, the most important
 // line winning (a capture over a hurt line over a place line).
 
 import type { Assets } from '@smashandclash/sdk';

@@ -1,0 +1,17 @@
+Smash&Clash - two players, a 3x5 board (15 tiles; columns A-E, rows 1-3, row 1 nearest player A). Each holds 5 cards from one shared 51-card deck (46 characters + 5 effect cards) and plays exactly ONE card per turn, then draws back to 5.
+
+Characters: four side values 1-7 (top, right, bottom, left, read from the owner's side). Place one on any empty tile. It attacks each orthogonal neighbour that faces the opponent and is not frozen: if your side touching it is >= its side touching you (ties go to the attacker), that card flips to you. Captures happen only when a card is placed; there are no chains.
+
+A card belongs to the player it faces; the board is the score. The game ends the moment all 15 tiles are full: more cards facing you wins (no draws).
+
+Effect cards (one copy each; only playable when they can do something):
+- BOULDER: remove a non-frozen card and every non-frozen card in its row and column.
+- FLIP: turn the whole board 180 degrees; every card changes sides.
+- FREEZE: freeze one of your cards for good (cannot be captured, cannot attack, cannot be removed).
+- RECRUIT: take a non-frozen enemy card and place it, as yours, on any empty tile (it attacks).
+- SWAP: exchange hands with your opponent.
+
+Mutators (the default ruleset) adds:
+- Chess tiles (2 per game: knight, bishop, rook or queen): place a card on one and you may hop it like that piece to an empty tile, where it attacks again.
+- Power tiles (2 new each turn, a colour and +1 or +2): a card of that colour standing on it attacks with every side boosted.
+- Overrun zones (B2, C2, D2): when your card there is surrounded on all four sides, you may play a card from your hand on top of it.
