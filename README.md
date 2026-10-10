@@ -1,4 +1,21 @@
-# Smash&Clash in GTA V
+<p align="center">
+  <img src="media/preview.gif" alt="Smash&Clash in GTA V: the title, a strike at the table, two players seen in the world, the other clients, every client on one wall" width="760">
+</p>
+
+<h1 align="center">Smash&Clash in GTA V</h1>
+
+<p align="center">
+  <a href="https://github.com/smashandclash/gtav/releases/latest">Download for your server</a> ·
+  <a href="https://docs.smashandclash.in/clients">One game, every client</a> ·
+  <a href="https://docs.smashandclash.in/sdk">SDK</a> ·
+  <a href="https://www.smashandclash.in">smashandclash.in</a>
+</p>
+
+<p align="center">
+  <b>Watch:</b>
+  <a href="https://github.com/smashandclash/gtav/releases/download/v1.0.0/smashandclash-gtav-launch-16x9.mp4">the launch film (16:9)</a> ·
+  <a href="https://github.com/smashandclash/gtav/releases/download/v1.0.0/smashandclash-gtav-launch-9x16.mp4">9:16</a>
+</p>
 
 ![A game of Smash&Clash at a table in GTA V](media/hero.jpg)
 
