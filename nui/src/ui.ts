@@ -58,7 +58,8 @@ export class UI implements Animator {
   private joinText = '';
 
   // match HUD
-  private camMode = 'seat';
+  // the table is played through your own eyes: your cards are in your hands, not on screen
+  private camMode = 'first';
   /** The hand card the player is looking at: it comes to the front of the fan, whole. */
   private focus: number | null = null;
   private lastView = '';
@@ -297,7 +298,6 @@ export class UI implements Animator {
     this.handEl = h('div', { class: 'hand', 'aria-label': 'Your hand' });
     this.refs.tileRow = h('div', { class: 'tile-row', 'aria-label': 'Tiles' });
     this.refs.stay = h('button', { class: 'candy mint', hidden: true, onclick: () => this.playHopStay() }, h('span', { text: 'Stay here' }));
-    this.refs.camera = h('button', { class: 'candy small sky', onclick: () => void this.cycleCamera() }, h('span', { text: 'View' }));
     this.refs.resign = h('button', { class: 'candy small cherry', onclick: () => this.openSheet('resign') }, h('span', { text: 'Resign' }));
     this.refs.does = h('div', { class: 'does', hidden: true });
     this.refs.result = h('div', { class: 'result', hidden: true });
@@ -310,7 +310,7 @@ export class UI implements Animator {
         them,
         h('div', { class: 'hud-right' }, this.refs.turn, h('div', { class: 'deck' }, h('img', { src: art.back, alt: '' }), this.refs.deckCount), this.refs.mode),
       ),
-      h('div', { class: 'hud-bottom' }, you, h('div', { class: 'hand-wrap' }, this.refs.tileRow, this.handEl), h('div', { class: 'actions-col' }, this.refs.stay, this.refs.camera, this.refs.resign)),
+      h('div', { class: 'hud-bottom' }, you, h('div', { class: 'hand-wrap' }, this.refs.tileRow, this.handEl), h('div', { class: 'actions-col' }, this.refs.stay, this.refs.resign)),
       this.refs.does,
       this.refs.result,
     );
@@ -352,13 +352,6 @@ export class UI implements Animator {
     }
   }
 
-  private async cycleCamera(): Promise<void> {
-    this.sound.sfx('click');
-    const r = await post<{ mode?: string }>('camera').catch(() => null);
-    this.camMode = r?.mode ?? (this.camMode === 'seat' ? 'first' : this.camMode === 'first' ? 'top' : 'seat');
-    this.render();
-  }
-
   private updateMatch(): void {
     const ctl = this.ctl;
     const g = ctl.game;
@@ -376,8 +369,6 @@ export class UI implements Animator {
     const r = ctl.opponentRating;
     this.refs.themMeta.textContent = [from ? `on ${from}` : null, r != null ? `Rating ${Math.round(r)}` : null].filter(Boolean).join(' · ');
     this.refs.deckCount.textContent = `${s.deck} left`;
-    const camLabel: Record<string, string> = { seat: 'View: seat', first: 'View: eyes', top: 'View: above' };
-    this.refs.camera.querySelector('span')!.textContent = camLabel[this.camMode] ?? 'View';
 
     // your hand on screen in the third-person views; in first person you look at the table
     this.handEl!.hidden = this.camMode === 'first';

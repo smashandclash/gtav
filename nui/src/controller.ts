@@ -13,7 +13,7 @@ import {
   type SeatMove,
   type SeatState,
 } from '@smashandclash/sdk';
-import { post, type TableContext } from './bridge';
+import { gameFetch, inGame, post, type TableContext } from './bridge';
 import { loadDeck, loadKit, loadRules } from './kit';
 import { houseStrength, nextRating, seatName, clientLabel } from './moves';
 import { saveProfile, type GameMode, type Profile } from './profile';
@@ -44,7 +44,8 @@ export interface TableOffer {
 const CLIENT = 'fivem';
 
 export class Controller {
-  readonly sc = new SmashAndClash({ client: CLIENT });
+  // in the game the SDK's calls go through the FiveM server (bridge.ts gameFetch)
+  readonly sc = new SmashAndClash({ client: CLIENT, ...(inGame ? { fetch: gameFetch } : {}) });
   name = 'Player';
   profile: Profile;
   cards = new Map<number, Card>();

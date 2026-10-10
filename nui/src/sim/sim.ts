@@ -61,7 +61,7 @@ export async function createSim(canvas: HTMLCanvasElement): Promise<Sim> {
   const fxImg = new Image();
   let fxSrc = '';
 
-  let mode = 'seat';
+  let mode = 'first';
   const H = (): number => lua.global.get('CARD_H') as number;
   let cam = { pos: [0, -1, 1] as Vec, at: [0, 0, 0] as Vec, fov: 50 };
   const place = () => {

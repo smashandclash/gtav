@@ -6,7 +6,8 @@ Tables = {}
 local list = {}        -- id -> { def, props, board, blip }
 local me = { id = nil, chair = nil }
 local cam = nil
-local camMode = 'seat' -- seat | top | first
+-- the table is played through your own eyes: the only view
+local camMode = 'first'
 local myServerId = GetPlayerServerId(PlayerId())
 
 local function loadModel(names)
@@ -195,8 +196,7 @@ function Tables.cameraMode()
 end
 
 function Tables.cycleCamera()
-  local nextMode = { seat = 'first', first = 'top', top = 'seat' }
-  Tables.camera(nextMode[camMode])
+  Tables.camera()
   return camMode
 end
 

@@ -126,3 +126,33 @@ export function standInTable(): TableContext | null {
   if (!params.get('opposite')) return { id: 'dev', label: 'the dev page', seat: 'A', opposite: null };
   return { id: 'dev', label: 'Legion Square', seat: 'A', opposite: { name: params.get('opposite') || 'Lamar' } };
 }
+
+/* ------------------------------ API relay ------------------------------- */
+
+interface Relayed {
+  status: number;
+  body: string;
+  headers?: Record<string, string>;
+  error?: string;
+}
+
+/**
+ * fetch, for the SDK inside the game: the call goes to the FiveM server, which makes it and hands
+ * back the answer. smashandclash.in's firewall challenges requests from the game's built-in
+ * browser (they look like a browser that cannot solve a challenge); from the server they are
+ * plain API calls. Only api/v1 calls go through (the server refuses anything else).
+ */
+export const gameFetch: typeof fetch = async (input, init = {}) => {
+  const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+  const headers: Record<string, string> = {};
+  new Headers(init.headers).forEach((v, k) => (headers[k] = v));
+  let r: Relayed;
+  try {
+    r = await post<Relayed>('http', { url, method: init.method ?? 'GET', headers, body: typeof init.body === 'string' ? init.body : '' });
+  } catch {
+    throw new TypeError('Failed to fetch');
+  }
+  // no answer at all: a dropped connection, as the SDK knows it
+  if (!r || !r.status) throw new TypeError(r?.error ? `Failed to fetch (${r.error})` : 'Failed to fetch');
+  return new Response(r.status === 204 || r.status === 304 ? null : r.body ?? '', { status: r.status, headers: r.headers ?? {} });
+};

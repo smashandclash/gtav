@@ -24,8 +24,10 @@ json = { encode = function() return '[]' end, decode = function() return {} end 
 function CreateThread(fn) THREADS[#THREADS + 1] = fn end
 function Wait() end
 function TriggerClientEvent(name, target, ...) SENT[#SENT + 1] = { name = name, target = target, args = { ... } } end
-function RegisterNetEvent(name, fn) HANDLERS[name] = fn end
-function AddEventHandler(name, fn) HANDLERS[name] = fn end
+-- several scripts may handle one event, as in FiveM
+local function on(name, fn) HANDLERS[name] = HANDLERS[name] or {} table.insert(HANDLERS[name], fn) end
+function RegisterNetEvent(name, fn) if fn then on(name, fn) end end
+function AddEventHandler(name, fn) on(name, fn) end
 function RegisterCommand(name, fn) COMMANDS[name] = fn end
 function GetPlayerName(src) return NAMES[src] or ('p' .. src) end
 function GetPlayerPed(src) return src end
@@ -33,7 +35,9 @@ function GetEntityCoords(ped) return POS[ped] or vector3(0, 0, 0) end
 function GetEntityHeading() return 0.0 end
 function GetResourceKvpString(k) return KVP[k] end
 function SetResourceKvp(k, v) KVP[k] = v end
-function fire(name, src, ...) source = src HANDLERS[name](...) end
+function fire(name, src, ...) for _, fn in ipairs(HANDLERS[name] or {}) do source = src fn(...) end end
+HTTP = {}
+function PerformHttpRequest(url, cb, method, data, headers) HTTP[#HTTP + 1] = { url = url, method = method, data = data, headers = headers } cb(200, '{"ok":true}', { ['Content-Type'] = 'application/json', ['Set-Cookie'] = 'x' }) end
 function sent(name, target)
   local out = {}
   for _, s in ipairs(SENT) do if s.name == name and (target == nil or s.target == target) then out[#out + 1] = s end end
@@ -50,6 +54,7 @@ beforeEach(async () => {
   await run(read('shared/config.lua'));
   await run(`Config.Tables = { { id = 't1', label = 'Test', coords = vector3(10, 10, 0), heading = 0.0 } }`);
   await run(read('server/main.lua'));
+  await run(read('server/http.lua'));
   await run(`for _, t in ipairs(THREADS) do if t ~= THREADS[#THREADS] then t() end end`);
   await run(`POS[1] = vector3(10, 11, 0) POS[2] = vector3(10, 9, 0) POS[3] = vector3(500, 500, 0) NAMES[1] = 'Franklin' NAMES[2] = 'Lamar'`);
 });
@@ -92,5 +97,16 @@ describe('tables on the server', () => {
     expect(await run(`local s = sent('smashandclash:seated', 3) return s[1].args[1] .. ':' .. s[1].args[2]`)).toBe('own-3:A');
     await run(`fire('playerDropped', 3)`);
     expect(await run(`return sent('smashandclash:tableGone')[1].args[1]`)).toBe('own-3');
+  });
+
+  it('relays the game API for a player, and nothing else', async () => {
+    await run(`fire('smashandclash:http', 1, 7, 'https://www.smashandclash.in/api/v1/games/rules', 'GET', { ['x-sdk'] = 'smashandclash-sdk/0.5.0 fivem', cookie = 'no' }, '')`);
+    const first = await run(`local s = sent('smashandclash:httpResult', 1)[1] return s.args[1] .. ':' .. s.args[2].status .. ':' .. s.args[2].body .. ':' .. tostring(s.args[2].headers['content-type']) .. ':' .. tostring(s.args[2].headers['set-cookie'])`);
+    expect(first).toBe('7:200:{"ok":true}:application/json:nil');
+    // only the SDK's own headers go out
+    expect(await run(`return tostring(HTTP[1].headers.cookie) .. ':' .. HTTP[1].headers['x-sdk']`)).toBe('nil:smashandclash-sdk/0.5.0 fivem via-fivem-server');
+    // anything but the game API is refused, and never requested
+    await run(`fire('smashandclash:http', 1, 8, 'https://evil.example/steal', 'GET', {}, '')`);
+    expect(await run(`local s = sent('smashandclash:httpResult', 1) return s[#s].args[2].status .. ':' .. #HTTP`)).toBe('0:1');
   });
 });

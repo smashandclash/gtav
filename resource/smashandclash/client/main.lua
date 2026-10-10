@@ -53,6 +53,25 @@ local function cb(name, fn)
   end)
 end
 
+-- The SDK's calls to smashandclash.in, through the server (see server/http.lua): answered later.
+local pending, nextId = {}, 0
+RegisterNUICallback('http', function(data, reply)
+  nextId = nextId + 1
+  pending[nextId] = reply
+  TriggerServerEvent('smashandclash:http', nextId, data.url, data.method, data.headers, data.body)
+  local id = nextId
+  SetTimeout(30000, function()
+    local r = pending[id]
+    if r then pending[id] = nil r({ status = 0, error = 'timeout' }) end
+  end)
+end)
+RegisterNetEvent('smashandclash:httpResult', function(id, res)
+  local r = pending[id]
+  if not r then return end
+  pending[id] = nil
+  r(res)
+end)
+
 cb('ready', function()
   return { name = GetPlayerName(PlayerId()), profile = GetResourceKvpString(KVP) }
 end)
@@ -169,6 +188,9 @@ CreateThread(function()
   while true do
     if Tables.seated() then
       HideHudAndRadarThisFrame()
+      -- your own body would sit between your eyes and the table: on your screen it is hidden (everyone
+      -- else still sees you sitting there, holding your cards)
+      SetEntityLocallyInvisible(PlayerPedId())
       DisableControlAction(0, 30, true) -- move
       DisableControlAction(0, 31, true)
       DisableControlAction(0, 24, true) -- attack
