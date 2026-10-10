@@ -1,43 +1,62 @@
 # Smash&Clash in GTA V
 
-Smash&Clash at tables in Los Santos. Sit down, and the board lies on the table in front of you as a real object: the cream wooden board from [smashandclash.in](https://www.smashandclash.in), its tiles, chess and power tiles, every card in its owner's colour, your hand standing at your edge. Cards drop onto the board, flip when they're captured, hop off chess tiles and crumble under a Boulder. Anyone walking past sees the game play out.
+![A game of Smash&Clash at a table in GTA V](media/hero.jpg)
 
-It's a [FiveM](https://fivem.net) resource. Every game goes through the [Smash&Clash SDK](https://docs.smashandclash.in), so a player at a table in GTA plays the same game network as everyone else: the website, Telegram, the terminal, a Nintendo DS. Rooms, codes and quick match work across all of them.
+Smash&Clash at tables in Los Santos. Sit down and the board lies on the table in front of you: the board from [smashandclash.in](https://www.smashandclash.in), its tiles, chess and power tiles, every card in its owner's colour, your cards standing at your edge. Cards drop onto the board, flip when they're captured, hop off chess tiles and crumble under a Boulder. Anyone walking past sees the game play out.
 
-## What you can do
+It's a [FiveM](https://fivem.net) resource, built on the [Smash&Clash SDK](https://docs.smashandclash.in). A player at a table in GTA plays on the same network as everyone else: the website, the apps, Telegram, Minecraft, the terminal, a Nintendo DS. Rooms, codes and quick match work across all of them.
 
-- **Sit at a table** (E at a free chair) and press **PLAY** for a game now, against a player at your level.
-- **Quick match**: the queue every Smash&Clash app shares.
-- **Play a friend**: make a room and give its code to anyone, on any app, or join theirs.
-- **Play the person across the table**: when someone sits opposite, a button opens a game for them; they accept on their screen.
-- **`/smash`** (F7) puts down a table of your own where you stand. F7 also brings your panel back when you're seated.
-- **Views**: over your shoulder with your hand on screen, through your own eyes with your cards standing in front of you, or from above.
-- Mutators and Classic, your rating (kept per server), the Game Review after each game, the game's music, effects, announcer and character voices.
-- Mouse, keyboard (arrows / WASD, Enter, 1 to 5, Esc) and controller (D-pad, A, B, LB / RB).
+## Playing
 
-## Install (server owners)
+- **Sit down:** press E at a free chair, or **F7** (`/smash`) anywhere to put down a table of your own. F7 also brings your panel back while you're seated.
+- **PLAY** starts a game now, against a player at your level. **Quick match** joins the queue every Smash&Clash app shares. **Play a friend** makes a room code anyone joins on any app, or joins theirs.
+- **Play the person across the table:** when someone sits opposite, a button opens a game for them; they accept on their screen. When your opponent isn't at the table (they're on another app), a character sits across and plays their cards.
+- **While you play,** the mouse moves your head. Look at a card and click to pick it up, then look at a glowing tile and click to place it. The wheel steps through your cards, right-click puts a card back, **V** changes the view (your eyes, close behind you, further back) and **Esc** opens the menu.
+- Mutators and Classic, your rating, the Game Review after each game, the game's music, effects, announcer and character voices. A controller works too (D-pad, A, B, LB / RB).
 
-Works on FiveM for GTA V Legacy and the FiveM for GTAV Enhanced early access. It uses no streamed assets, so nothing needs converting.
+## Add it to your server
 
-1. Copy `resource/smashandclash` into your server's `resources` folder.
+It's a standalone resource: no framework (ESX, QBCore, vRP) and no database, so it sits alongside whatever your server runs. It streams no game assets, and it works on FiveM for GTA V Legacy and FiveM for GTAV Enhanced, with or without OneSync.
+
+1. Download `smashandclash.zip` from the [latest release](https://github.com/smashandclash/gtav/releases/latest) and unzip it into your server's `resources` folder (you get `resources/smashandclash`).
 2. Add `ensure smashandclash` to `server.cfg`.
-3. Optional: give admins `add_ace group.admin command.smashtable allow` so they can place permanent tables with `/smashtable [name]` (and take one away with `/smashtable_remove`).
+3. Restart the server. Two tables are on the map (Legion Square and Del Perro Pier), and every player can press F7 for one of their own.
 
-The tables, their models, the key and the map blips are set in [`shared/config.lua`](resource/smashandclash/shared/config.lua).
+### Settings
 
-Players need an internet connection: the game runs on www.smashandclash.in.
+Everything is in [`shared/config.lua`](resource/smashandclash/shared/config.lua):
+
+| Setting | Default | Does |
+| --- | --- | --- |
+| `Config.Tables` | Legion Square, Del Perro Pier | Tables that are always there. Remove them or add your own |
+| `Config.OwnTables` | `true` | Players can put down a table of their own with F7 / `/smash` |
+| `Config.OwnTableAce` | `false` | Only players with the `smashandclash.own` ace can (`add_ace group.vip smashandclash.own allow`) |
+| `Config.MaxOwnTables` | `24` | How many tables of their own can be out at once |
+| `Config.TempTableSeconds` | `90` | How long an empty table of one's own stays |
+| `Config.RequestsPerPlayer` / `Config.RequestsPerServer` | `90` / `1500` | Calls to smashandclash.in per minute, for each player and for the whole server |
+| `Config.Command` / `Config.Key` | `smash` / `F7` | The command and its default key (players can rebind it in GTA's settings, Key Bindings > FiveM) |
+| `Config.TableModels` / `Config.ChairModels` | GTA's own props | The first model the game has is used |
+| `Config.Blips` | `true` | Tables on the map |
+| `Config.CheckForUpdates` | `true` | A note in the server console when a newer version is out |
+
+### Permanent tables
+
+Give your staff the command: `add_ace group.admin command.smashtable allow`. Then `/smashtable [name]` puts a table where they stand (saved across restarts) and `/smashtable_remove` takes the nearest one away.
+
+### What it connects to
+
+Players' games run on www.smashandclash.in, through your server: each player's page hands its calls to the server, which makes them (only `https://www.smashandclash.in/api/v1/`, within the limits above) and hands back the answer. Your players need nothing else, and nothing else goes out. Each player's seat in a game stays in their own client; the server only keeps who sits where and which game each table shows, so everyone around sees the same board.
+
+### Updating
+
+Download the new release and replace `resources/smashandclash`, keeping your `shared/config.lua`. The console says when a newer version is out.
 
 ## Try it on your own PC
 
-1. Install **FiveM for GTAV Enhanced** from [fivem.net](https://fivem.net) (the "Download FiveM for GTAV Enhanced" button). You need GTA V Enhanced on PC.
-2. Get a free server licence key at [portal.cfx.re](https://portal.cfx.re).
-3. Download the **Cfx Server** for Windows from the official server download page, platform "FiveM for GTAV Enhanced".
-4. Put this resource in the server's `resources` folder, `ensure smashandclash` and your key (`sv_licenseKey`) in `server.cfg`, and start `cfx-server.exe`.
-5. In FiveM, connect to `localhost`. Walk to the blip at Legion Square, or press F7 anywhere.
-
-### The local server in this folder
-
-`server/` (not in git) holds a ready Cfx Server for FiveM for GTAV Enhanced: the server in `server/bin`, Cfx's stock resources and this resource (linked, so `npm run build` updates it) in `server/data/resources`, and `server/data/server.cfg`. Put your key in `server/data/license.cfg`, run `server/start.bat`, then in FiveM for GTAV Enhanced press F8 and type `connect localhost`. It only accepts this PC (127.0.0.1); change both `endpoint_add` lines to `0.0.0.0:30120` to let friends on your network join.
+1. Install **FiveM** (or **FiveM for GTAV Enhanced**) from [fivem.net](https://fivem.net).
+2. Get a free server key at [portal.cfx.re](https://portal.cfx.re) and download the Cfx Server for Windows.
+3. Add the resource as above, put your key (`sv_licenseKey`) in `server.cfg`, and start the server.
+4. In FiveM, connect to `localhost`. Walk to the blip at Legion Square, or press F7 anywhere.
 
 ## Develop
 
@@ -49,32 +68,27 @@ npm install
 npm run dev
 ```
 
-The dev page (http://localhost:5394) runs the client in a browser and previews the table: the resource's own `client/board.lua` runs in a Lua 5.4 VM and draws on a canvas. That lets you check the board and animations without starting GTA. `?name=` gives each tab its own player.
+The dev page (http://localhost:5394) runs the client in a browser and previews the table: the resource's own `client/board.lua` runs in a Lua 5.4 VM and draws on a canvas, so you can check the board and animations without starting GTA. `?name=` gives each tab its own player.
 
 ```bash
 npm run check
 ```
 
-Type-checks, runs the tests (the server script runs in Lua with FiveM's functions stubbed) and compiles every Lua file. `npm run build` writes the page into `resource/smashandclash/html`.
+Type-checks, runs the tests (the server scripts run in Lua with FiveM's functions stubbed) and compiles every Lua file. `npm run build` writes the page into `resource/smashandclash/html`, and `npm run release` builds `smashandclash.zip`.
 
-### The art and sound
-
-The resource ships everything it shows and plays: card faces, strike drawings, music, effects, the announcer and one take of each character line (about 26 MB, downloaded once by each player). `npm run assets` copies them from the game's asset folder (`SNC_ASSETS`, by default `C:/PROJECTS/Smash&Clash/fable/assets`) into `nui/public`, with the deck and the sound list from the SDK. In game, the page talks to smashandclash.in only through the SDK, to play.
-
-## How it fits together
+The resource ships everything it shows and plays: card faces, strike drawings, music, effects, the announcer and one take of each character line (about 26 MB, downloaded once by each player). `npm run assets` copies them from the game's asset folder (`SNC_ASSETS`) into `nui/public`, with the deck and the sound list from the SDK.
 
 | Part | Does |
 | --- | --- |
-| `nui/` (the page) | Runs the game through `@smashandclash/sdk`, shows the panel and HUD, follows nearby tables' games as a spectator, and tells the resource what each board shows (`view.ts`) and how each move plays out |
-| `client/board.lua` | Draws a board: tiles, cards, hands and every animation, as textured polygons in the world. Picks what the cursor points at |
-| `client/render.lua` | GTA's side of drawing: the atlas (one DUI page with every card face and sprite) and the strike drawings |
-| `client/tables.lua` | Tables, chairs, sitting down, the cameras |
-| `server/main.lua` | Who sits where, which game each table shows, and the room code from one chair to the other. The game itself never passes through it |
-
-Each player plays from their own client: their seat's token stays in their game. Spectators get only what anyone at the table could see: the board, and hands as counts.
+| `nui/` (the page) | Runs the game through `@smashandclash/sdk`, shows the panel and HUD, follows nearby tables' games as a spectator, and tells the resource what each board shows and how each move plays out |
+| `client/board.lua` | Draws a board: tiles, cards and every animation, as textured polygons in the world. Picks what you look or point at |
+| `client/render.lua` | GTA's side of drawing: the atlas (one page with every card face and sprite) and the strike drawings |
+| `client/tables.lua` | Tables, chairs, sitting down, the camera at your eyes, the character across |
+| `server/main.lua` | Who sits where, which game each table shows, and the room code from one chair to the other |
+| `server/http.lua` | Makes each player's calls to smashandclash.in, within the server's limits |
 
 ## Licence
 
 The code is MIT. The characters, art, audio and the Smash&Clash name stay Smash&Clash's: they're free to use in clients built for Smash&Clash, never to present as your own ([terms](https://www.smashandclash.in/terms#developers)).
 
-GTA V and FiveM belong to Rockstar Games and Cfx.re. This resource follows Rockstar's mod guidelines: it's free and non-commercial.
+GTA V and FiveM belong to Rockstar Games and Cfx.re. This resource follows Rockstar's mod guidelines: it's free and non-commercial. Not affiliated with or endorsed by Rockstar Games or Cfx.re.

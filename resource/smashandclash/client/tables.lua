@@ -5,6 +5,7 @@ Tables = {}
 
 --- A line for the server's console (client prints only reach F8): what happened at a table.
 function Tables.log(text)
+  if not Config.Debug then return end
   TriggerServerEvent('smashandclash:log', tostring(text):sub(1, 300))
 end
 

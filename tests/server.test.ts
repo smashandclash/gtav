@@ -29,6 +29,8 @@ local function on(name, fn) HANDLERS[name] = HANDLERS[name] or {} table.insert(H
 function RegisterNetEvent(name, fn) if fn then on(name, fn) end end
 function AddEventHandler(name, fn) on(name, fn) end
 function RegisterCommand(name, fn) COMMANDS[name] = fn end
+ACES = {}
+function IsPlayerAceAllowed(src, ace) return ACES[src .. ':' .. ace] == true end
 function GetPlayerName(src) return NAMES[src] or ('p' .. src) end
 function GetPlayerPed(src) return src end
 function GetEntityCoords(ped) return POS[ped] or vector3(0, 0, 0) end
@@ -97,6 +99,23 @@ describe('tables on the server', () => {
     expect(await run(`local s = sent('smashandclash:seated', 3) return s[1].args[1] .. ':' .. s[1].args[2]`)).toBe('own-3:A');
     await run(`fire('playerDropped', 3)`);
     expect(await run(`return sent('smashandclash:tableGone')[1].args[1]`)).toBe('own-3');
+  });
+
+  it('keeps own tables within the server owner limits', async () => {
+    await run(`Config.MaxOwnTables = 1 POS[4] = vector3(600, 600, 0)`);
+    await run(`fire('smashandclash:ownTable', 3, 500, 501, 0, 0.0) fire('smashandclash:ownTable', 4, 600, 601, 0, 0.0)`);
+    expect(await run(`return #sent('smashandclash:seated', 3) .. ':' .. #sent('smashandclash:seated', 4) .. ':' .. #sent('smashandclash:notify', 4)`)).toBe('1:0:1');
+    // only players with the ace, when the owner asks for it
+    await run(`Config.MaxOwnTables = 24 Config.OwnTableAce = true fire('smashandclash:ownTable', 4, 600, 601, 0, 0.0)`);
+    expect(await run(`return #sent('smashandclash:seated', 4)`)).toBe(0);
+    await run(`ACES['4:smashandclash.own'] = true fire('smashandclash:ownTable', 4, 600, 601, 0, 0.0)`);
+    expect(await run(`return #sent('smashandclash:seated', 4)`)).toBe(1);
+  });
+
+  it('holds every player together to the server request budget', async () => {
+    await run(`Config.RequestsPerServer = 3`);
+    await run(`for i = 1, 4 do fire('smashandclash:http', (i % 2) + 1, i, 'https://www.smashandclash.in/api/v1/games/rules', 'GET', {}, '') end`);
+    expect(await run(`local n = 0 for _, s in ipairs(SENT) do if s.name == 'smashandclash:httpResult' and s.args[2].status == 429 then n = n + 1 end end return n .. ':' .. #HTTP`)).toBe('1:3');
   });
 
   it('relays the game API for a player, and nothing else', async () => {

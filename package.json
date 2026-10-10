@@ -14,7 +14,8 @@
     "assets": "node tools/vendor-assets.mjs",
     "build": "tsc --noEmit && vite build",
     "test": "vitest run",
-    "check": "tsc --noEmit && vitest run && node tools/check-lua.mjs"
+    "check": "tsc --noEmit && vitest run && node tools/check-lua.mjs",
+    "release": "npm run build && node tools/release.mjs"
   },
   "dependencies": {
     "@smashandclash/sdk": "^0.5.0"
@@ -24,5 +25,9 @@
     "vite": "^6.0.0",
     "vitest": "^3.0.0",
     "wasmoon": "^1.16.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/smashandclash/gtav"
   }
 }

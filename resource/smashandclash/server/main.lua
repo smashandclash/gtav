@@ -116,7 +116,7 @@ local function sit(src, id, chair)
 end
 
 RegisterNetEvent('smashandclash:log', function(text)
-  if type(text) == 'string' then print(('[smashandclash] %s: %s'):format(playerName(source), text:sub(1, 300))) end
+  if Config.Debug and type(text) == 'string' then print(('[smashandclash] %s: %s'):format(playerName(source), text:sub(1, 300))) end
 end)
 
 RegisterNetEvent('smashandclash:hello', function()
@@ -139,8 +139,17 @@ end)
 RegisterNetEvent('smashandclash:ownTable', function(x, y, z, heading)
   local src = source
   if type(x) ~= 'number' or type(y) ~= 'number' or type(z) ~= 'number' then return end
+  if not Config.OwnTables then return TriggerClientEvent('smashandclash:notify', src, 'Find a Smash&Clash table on the map to play.') end
+  if Config.OwnTableAce and not IsPlayerAceAllowed(src, 'smashandclash.own') then
+    return TriggerClientEvent('smashandclash:notify', src, 'Find a Smash&Clash table on the map to play.')
+  end
   local id = 'own-' .. tostring(src)
   if tables[id] then removeTable(id) end
+  local own = 0
+  for _, t in pairs(tables) do if t.temp then own = own + 1 end end
+  if own >= (Config.MaxOwnTables or 24) then
+    return TriggerClientEvent('smashandclash:notify', src, 'Every table is taken right now. Find one on the map, or try again soon.')
+  end
   local t = addTable({ id = id, label = ("%s's table"):format(playerName(src)), coords = vector3(x, y, z), heading = (heading or 0.0) + 0.0, temp = true, owner = src })
   if not near(src, t, 8.0) then return removeTable(id) end
   sit(src, id, 'A')

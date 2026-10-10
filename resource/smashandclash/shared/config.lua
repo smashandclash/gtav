@@ -38,6 +38,24 @@ Config.TempTableSeconds = 90
 Config.Command = 'smash'
 Config.Key = 'F7'
 
+-- Tables of your own (/smash, F7): on for everyone, or only for players with the
+-- `smashandclash.own` ace (add_ace group.vip smashandclash.own allow) when OwnTableAce is true.
+Config.OwnTables = true
+Config.OwnTableAce = false
+-- At most this many tables of your own on the server at once (placed tables don't count).
+Config.MaxOwnTables = 24
+
+-- Each player's calls to smashandclash.in go through this server: per player, and for the whole
+-- server together, per minute. A game uses a few calls a move; the defaults leave plenty of room.
+Config.RequestsPerPlayer = 90
+Config.RequestsPerServer = 1500
+
+-- Say in the server console when a newer version of this resource is out.
+Config.CheckForUpdates = true
+
+-- Diagnostics in the server console (sitting, tables). Off unless you're chasing a problem.
+Config.Debug = false
+
 -- Show the tables on the map.
 Config.Blips = true
 Config.BlipSprite = 680 -- radar_casino_table_games
