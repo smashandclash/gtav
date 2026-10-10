@@ -137,6 +137,11 @@ function R.poly(p1, p2, p3, r, g, b, a, u1, v1, u2, v2, u3, v3)
   n = n + 21
 end
 
+TEXTS = {}
+function R.text(x, y, z, text, rgb, a, scale)
+  TEXTS[#TEXTS + 1] = x .. '|' .. y .. '|' .. z .. '|' .. rgb[1] .. '|' .. rgb[2] .. '|' .. rgb[3] .. '|' .. (a or 255) .. '|' .. (scale or 0.5) .. '|' .. text
+end
+
 function R.camera()
   return camp[1], camp[2], camp[3]
 end
@@ -193,11 +198,17 @@ end
 -- held in both hands in front of the chest
 HEAD = { 0, -(ey + 0.55), 0.48 }
 HEAD_Y, HEAD_Z = HEAD[2], HEAD[3]
-local hands = { A = { anchor = { 0, -(ey + 0.27), 0.15 }, head = { HEAD[1], HEAD[2], HEAD[3] + 0.04 } } }
+local hands = {
+  A = { anchor = { 0, -(ey + 0.27), 0.15 }, head = { HEAD[1], HEAD[2], HEAD[3] + 0.04 } },
+  -- the character across the table, holding their cards the same way
+  B = { anchor = { 0, ey + 0.27, 0.15 }, head = { 0, ey + 0.55, 0.52 } },
+}
 
 function frame(now)
   buf, n = {}, 0
+  TEXTS = {}
   board:setHands(hands)
   board:draw(R, now)
+  TEXT_LINES = table.concat(TEXTS, '\n')
   return buf
 end

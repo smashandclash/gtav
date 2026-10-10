@@ -72,7 +72,7 @@ export async function createSim(canvas: HTMLCanvasElement): Promise<Sim> {
       // the stand-in player's eyes (shim.lua HEAD), a little in front of the face, as tables.lua places it
       const hy = lua.global.get('HEAD_Y') as number;
       const hz = lua.global.get('HEAD_Z') as number;
-      cam = { pos: [0, hy + 0.13, hz + 0.03], at: [0, -h * 0.15, 0], fov: 66 };
+      cam = { pos: [0, hy + 0.13, hz + 0.03], at: [0, h * 0.05, 0], fov: 66 };
     }
     else cam = { pos: [0, -(ex + h * 3.6), h * 4.6], at: [0, -h * 0.35, 0], fov: 50 };
   };
@@ -133,6 +133,23 @@ export async function createSim(canvas: HTMLCanvasElement): Promise<Sim> {
         }
       }
       textured(pts, uv, tex, [cr, cg, cb, ca]);
+    }
+    // the attack numbers, standing over the board
+    const lines = String(lua.global.get('TEXT_LINES') ?? '');
+    for (const line of lines ? lines.split('\n') : []) {
+      const [x, y, z, r, gg, b, a, scale, ...text] = line.split('|');
+      const sp = project([Number(x), Number(y), Number(z)], w, h);
+      if (!sp) continue;
+      g.save();
+      g.globalAlpha = Number(a) / 255;
+      g.font = `bold ${Math.round(Number(scale) * 52 * devicePixelRatio)}px "Arial Black", sans-serif`;
+      g.textAlign = 'center';
+      g.lineWidth = 5 * devicePixelRatio;
+      g.strokeStyle = '#000';
+      g.strokeText(text.join('|'), sp[0] * w, sp[1] * h);
+      g.fillStyle = `rgb(${r},${gg},${b})`;
+      g.fillText(text.join('|'), sp[0] * w, sp[1] * h);
+      g.restore();
     }
     requestAnimationFrame(draw);
 

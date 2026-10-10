@@ -26,6 +26,13 @@ Config.HoldAnims = {
   { 'cellphone@', 'cellphone_text_read_base' },
 }
 
+-- Who sits across when the other player is not at the table (the opponent at your level, or a
+-- player on another app). The first the game has, picked by the game, so everyone sees the same.
+Config.CharacterModels = {
+  'a_m_y_hipster_01', 'a_f_y_hipster_02', 'a_m_y_business_02', 'a_f_y_business_01',
+  'a_m_y_vinewood_01', 'a_f_y_tourist_01', 'a_m_y_stbla_01', 'a_f_y_bevhills_01',
+}
+
 -- Tables are built within this distance, and the board is drawn within the second.
 Config.SpawnDistance = 90.0
 Config.DrawDistance = 28.0

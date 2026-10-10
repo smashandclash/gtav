@@ -120,6 +120,21 @@ function Render.poly(p1, p2, p3, r, g, b, a, u1, v1, u2, v2, u3, v3)
   DrawTexturedPoly(p1[1], p1[2], p1[3], p2[1], p2[2], p2[3], p3[1], p3[2], p3[3], r, g, b, a, TXD, current, u1, v1, 1.0, u2, v2, 1.0, u3, v3, 1.0)
 end
 
+--- Text standing in the world (an attack's numbers), facing the screen.
+function Render.text(x, y, z, text, rgb, a, scale)
+  SetDrawOrigin(x, y, z, 0)
+  SetTextFont(4)
+  SetTextScale(0.0, scale or 0.5)
+  SetTextColour(rgb[1], rgb[2], rgb[3], a or 255)
+  SetTextOutline()
+  SetTextDropshadow(2, 0, 0, 0, 200)
+  SetTextCentre(true)
+  BeginTextCommandDisplayText('STRING')
+  AddTextComponentSubstringPlayerName(text)
+  EndTextCommandDisplayText(0.0, 0.0)
+  ClearDrawOrigin()
+end
+
 function Render.project(x, y, z)
   local ok, sx, sy = GetScreenCoordFromWorldCoord(x, y, z)
   return ok, sx, sy

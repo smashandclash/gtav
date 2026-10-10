@@ -821,7 +821,7 @@ export class UI implements Animator {
     const ctl = this.ctl;
     const after = m.state;
     const events = m.events as Array<Record<string, unknown> & { type: string }>;
-    const { steps, total } = stepsFor(before, after, events, ctl.cards);
+    const { steps, total } = stepsFor(before, after, events, ctl.cards, seat);
     const t = ctl.table;
     if (t && ctl.game) {
       const v = tableView({

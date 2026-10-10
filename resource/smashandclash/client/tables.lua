@@ -73,7 +73,9 @@ local function unbuild(t)
   for _, o in ipairs(t.props or {}) do
     if DoesEntityExist(o) then DeleteObject(o) end
   end
-  t.props, t.board = nil, nil
+  -- the character across goes with the table
+  if t.npc and t.npc.ped and DoesEntityExist(t.npc.ped) then DeleteEntity(t.npc.ped) end
+  t.props, t.board, t.npc = nil, nil, nil
 end
 
 local function blip(t)
@@ -133,7 +135,8 @@ end
 
 function Tables.animate(id, steps)
   local t = list[id]
-  if t and t.board then t.board:animate(steps, GetGameTimer()) end
+  if t and t.board then return t.board:animate(steps, GetGameTimer()) end
+  return {}
 end
 
 -------------------------------------------------------------------------------------------
@@ -183,8 +186,9 @@ function Tables.camera(mode)
   elseif camMode == 'first' then
     -- your own eyes: just in front of the face, looking down past your cards at the board
     local head, fwd = eyes(PlayerPedId())
-    local eye = vector3(head.x + fwd.x * 0.13, head.y + fwd.y * 0.13, head.z + 0.03)
-    local target = at(0, -b.H * 0.15, 0)
+    -- far enough in front of the face that hair and nose never hang in the view
+    local eye = vector3(head.x + fwd.x * 0.2, head.y + fwd.y * 0.2, head.z + 0.04)
+    local target = at(0, b.H * 0.05, 0)
     camLookAt(eye, target, mode ~= nil)
   else
     camLookAt(at(0, -(ey + b.H * 3.6), b.H * 4.6), at(0, -b.H * 0.35, 0))
@@ -310,21 +314,110 @@ local function handOf(ped)
 end
 
 -- Who sits in each chair of a table, as bodies in the world.
+-- The body in a chair: a player, or the character who plays for an opponent not at the table.
+local function pedAt(t, chair)
+  local seat = t.def.seats[chair]
+  if seat then
+    if seat.id == myServerId then return PlayerPedId() end
+    local player = GetPlayerFromServerId(seat.id)
+    if player ~= -1 then return GetPlayerPed(player) end
+    return nil
+  end
+  return t.npc and t.npc.chair == chair and t.npc.ped or nil
+end
+
 local function handsAt(t)
   local hands = {}
   for _, chair in ipairs({ 'A', 'B' }) do
-    local seat = t.def.seats[chair]
-    if seat then
-      local ped
-      if seat.id == myServerId then ped = PlayerPedId()
-      else
-        local player = GetPlayerFromServerId(seat.id)
-        if player ~= -1 then ped = GetPlayerPed(player) end
-      end
-      hands[chair] = handOf(ped)
-    end
+    hands[chair] = handOf(pedAt(t, chair))
   end
   return hands
+end
+
+--- A hand reaching out: to lay a card on the board, or to take one from the deck. The
+--- holding pose comes back after it.
+local REACH = { 'mp_common', 'givetake1_a' }
+function Tables.act(id, act)
+  local t = list[id]
+  if not t or not t.board or not act.seat then return end
+  local ped = pedAt(t, t.board:chairOf(act.seat))
+  if not ped or not DoesEntityExist(ped) then return end
+  -- only your own body and the characters this client runs are animated here; other players
+  -- animate themselves and the game shares it
+  if ped ~= PlayerPedId() and not (t.npc and t.npc.ped == ped) then return end
+  SetTimeout(math.max(0, (act.at or 0) - 120), function()
+    if not DoesEntityExist(ped) then return end
+    RequestAnimDict(REACH[1])
+    local t0 = GetGameTimer()
+    while not HasAnimDictLoaded(REACH[1]) and GetGameTimer() - t0 < 1500 do Wait(10) end
+    if not HasAnimDictLoaded(REACH[1]) then return end
+    -- 48 = upper body + secondary: the arm reaches, the seat keeps the legs
+    TaskPlayAnim(ped, REACH[1], REACH[2], 6.0, 4.0, 900, 48, act.kind == 'draw' and 0.15 or 0.0, false, false, false)
+    SetTimeout(950, function()
+      if DoesEntityExist(ped) then Tables.holdCards(ped) end
+    end)
+  end)
+end
+
+-------------------------------------------------------------------------------------------
+-- the character across the table
+
+-- When the other side of a game is not in the chair across (the opponent at your level, or a
+-- player on another app), a local character sits there and plays their cards.
+local function wantsCharacter(t)
+  local d = t.def
+  if not d.game or not t.board then return nil end
+  local a, b = d.seats.A, d.seats.B
+  if a and not b then return 'B' end
+  if b and not a then return 'A' end
+  return nil
+end
+
+local function removeCharacter(t)
+  if t.npc and t.npc.ped and DoesEntityExist(t.npc.ped) then DeleteEntity(t.npc.ped) end
+  t.npc = nil
+end
+
+local function placeCharacter(t, chair)
+  if t.npc and t.npc.chair == chair and DoesEntityExist(t.npc.ped) then return end
+  removeCharacter(t)
+  -- the same face for the same game, on every client
+  local pick = 0
+  for i = 1, #(t.def.game or '') do pick = (pick * 31 + t.def.game:byte(i)) % 1000003 end
+  local models = Config.CharacterModels
+  local model
+  for k = 0, #models - 1 do
+    local name = models[(pick + k) % #models + 1]
+    if IsModelInCdimage(joaat(name)) then model = joaat(name) break end
+  end
+  if not model then return end
+  t.npc = { chair = chair, loading = true }
+  CreateThread(function()
+    RequestModel(model)
+    local t0 = GetGameTimer()
+    while not HasModelLoaded(model) and GetGameTimer() - t0 < 5000 do Wait(20) end
+    if not HasModelLoaded(model) or not t.npc or t.npc.chair ~= chair then return end
+    local pos, facing = chairSpot(t, chair)
+    local ped = CreatePed(4, model, pos.x, pos.y, pos.z, facing, false, false)
+    SetModelAsNoLongerNeeded(model)
+    SetEntityInvincible(ped, true)
+    SetBlockingOfNonTemporaryEvents(ped, true)
+    SetPedCanRagdoll(ped, false)
+    SetPedFleeAttributes(ped, 0, false)
+    TaskStartScenarioAtPosition(ped, Config.SitScenario, pos.x, pos.y, pos.z + Config.SeatHeight, facing, 0, true, true)
+    t.npc = { chair = chair, ped = ped }
+    Wait(1200)
+    if DoesEntityExist(ped) then Tables.holdCards(ped) end
+  end)
+end
+
+local function tendCharacter(t)
+  local chair = wantsCharacter(t)
+  if not chair then
+    if t.npc then removeCharacter(t) end
+    return
+  end
+  if not t.npc or (t.npc.chair ~= chair and not t.npc.loading) then placeCharacter(t, chair) end
 end
 
 -- build and clear props by distance, and tell the page which games to follow
@@ -336,6 +429,7 @@ CreateThread(function()
       local d = #(p - vector3(t.def.coords.x, t.def.coords.y, t.def.coords.z))
       if d < Config.SpawnDistance and not t.props then build(t)
       elseif d > Config.SpawnDistance + 15.0 and t.props then unbuild(t) end
+      if t.props then tendCharacter(t) elseif t.npc then removeCharacter(t) end
       if d < Config.DrawDistance + 5.0 and id ~= me.id then
         nearby[#nearby + 1] = { id = id, game = t.def.game or nil, flip = t.def.flip or false }
       end

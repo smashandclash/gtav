@@ -3,7 +3,8 @@
 -- flip, hop and crumble), so anyone nearby sees the game from wherever they stand.
 --
 -- Nothing here calls a native directly: the renderer `R` (client/render.lua in the game, a
--- recorder in tools/sim) draws and projects, so the board can be checked outside GTA.
+-- recorder in the dev page's sim/shim.lua) draws and projects, so the board can be checked
+-- outside GTA.
 
 Board = {}
 Board.__index = Board
@@ -13,19 +14,38 @@ local PI = math.pi
 local PIECE = { KNIGHT = 'knight', BISHOP = 'bishop', ROOK = 'rook', QUEEN = 'queen', knight = 'knight', bishop = 'bishop', rook = 'rook', queen = 'queen' }
 local OVERRUN = { B2 = true, C2 = true, D2 = true }
 
--- Arena Pop: you are blue, them orange; at a table seen by everyone, chair A blue, chair B orange.
+-- Arena Pop: chair A blue, chair B orange (the website's you / them, as the table sees it)
 local BLUE = { 33, 115, 232 }
 local ORANGE = { 244, 88, 31 }
 local MINT = { 139, 247, 207 }
 local SUN = { 255, 194, 26 }
-local NAVY = { 13, 26, 74 }
+local ICE = { 190, 235, 255 }
+local WHITE = { 255, 255, 255 }
 
 local function clamp(x, a, b) return math.max(a, math.min(b, x)) end
+local function lerp(a, b, t) return a + (b - a) * t end
 local function easeOut(p) return 1 - (1 - p) ^ 3 end
 local function easeInOut(p) return p < 0.5 and 4 * p * p * p or 1 - (-2 * p + 2) ^ 3 / 2 end
 local function backOut(p)
   local c1, c3 = 1.70158, 2.70158
   return 1 + c3 * (p - 1) ^ 3 + c1 * (p - 1) ^ 2
+end
+local function backInOut(p)
+  local c2 = 1.70158 * 1.525
+  if p < 0.5 then return ((2 * p) ^ 2 * ((c2 + 1) * 2 * p - c2)) / 2 end
+  return ((2 * p - 2) ^ 2 * ((c2 + 1) * (p * 2 - 2) + c2) + 2) / 2
+end
+-- a landing: down fast, one small bounce
+local function bounce(p)
+  if p < 0.72 then return (p / 0.72) ^ 2 end
+  local q = (p - 0.72) / 0.28
+  return 1 - math.sin(q * PI) * 0.08
+end
+
+local function find(list, pred)
+  for _, v in ipairs(list or {}) do
+    if pred(v) then return v end
+  end
 end
 
 function Board.cellRC(cell)
@@ -51,6 +71,7 @@ function Board.new(origin, heading, cardH)
   self.view = nil
   self.anims = {}
   self.hover = nil
+  self.fan = {} -- card id -> how it sits in the hand now (eased every frame)
   local h = math.rad(heading)
   -- local x runs to chair A's right, local y from chair A towards chair B
   self.ax = { math.cos(h), math.sin(h) }
@@ -69,11 +90,16 @@ function Board:setView(view)
 end
 
 --- A move's animation steps, starting now (`now` in ms). Steps: { at, dur, kind, ... }.
+--- Returns what the players' bodies do in it: { { kind = 'play' | 'draw', seat, at } }.
 function Board:animate(steps, now)
+  local acts = {}
   for _, s in ipairs(steps or {}) do
     s.start = now + (s.at or 0)
     self.anims[#self.anims + 1] = s
+    if s.kind == 'drop' and s.fromHand and s.seat then acts[#acts + 1] = { kind = 'play', seat = s.seat, at = s.at or 0 } end
+    if s.kind == 'draw' and s.seat then acts[#acts + 1] = { kind = 'draw', seat = s.seat, at = s.at or 0 } end
   end
+  return acts
 end
 
 function Board:busy(now)
@@ -87,6 +113,13 @@ end
 function Board:world(x, y, z)
   local o = self.origin
   return o.x + self.ax[1] * x + self.ay[1] * y, o.y + self.ax[2] * x + self.ay[2] * y, o.z + z
+end
+
+--- World to table coordinates (the inverse of Board:world).
+function Board:toLocal(x, y, z)
+  local o = self.origin
+  local dx, dy = x - o.x, y - o.y
+  return dx * self.ax[1] + dy * self.ax[2], dx * self.ay[1] + dy * self.ay[2], z - o.z
 end
 
 --- Where a cell sits, in table coordinates, for the current orientation.
@@ -116,8 +149,14 @@ function Board:extents()
   return gx + self.M, gy + self.M
 end
 
+-- The chair each game seat sits at.
+function Board:chairOf(seat)
+  if self.view and self.view.flip then return seat == 'A' and 'B' or 'A' end
+  return seat
+end
+
 -------------------------------------------------------------------------------------------
--- drawing
+-- drawing primitives
 
 -- A flat or standing quad: centre (x, y, z) in table coordinates, half sizes hw, hh, turned
 -- `yaw` in the table plane, rolled `roll` about its own up axis (a flip), pitched `pitch` up
@@ -164,41 +203,6 @@ local function sprite(R, corners, uv, rgb, a, mirror)
   R.poly(p4, p3, p1, r, g, b, a, u0, v1, u1, v1, u0, v0)
 end
 
-local WHITE = { 255, 255, 255 }
-
---- A card: its face (or `back` = true for a hidden card) on the side the camera sees.
-function Board:card(R, id, x, y, z, yaw, opts)
-  opts = opts or {}
-  local s = opts.scale or 1
-  local hw, hh = self.W / 2 * s, self.H / 2 * s
-  local corners, n = self:quad(x, y, z, hw, hh, yaw, opts.roll, opts.pitch)
-  local front = faces(R, corners, n)
-  local alpha = opts.alpha or 255
-  local tint = opts.frozen and { 200, 235, 255 } or WHITE
-  if opts.rim and not opts.pitch then
-    -- the owner's colour around the card, and a soft shadow under it
-    local sc = self:quad(x + self.H * 0.03, y - self.H * 0.04, math.max(0.001, z - 0.004 - (opts.lift or 0)), hw * 1.18, hh * 1.14, yaw)
-    sprite(R, sc, R.glyph('shadow'), WHITE, math.floor(150 * alpha / 255))
-    -- a thick border in the owner's colour, as the website frames every card on the board
-    local rc = self:quad(x, y, z - 0.0015, hw * 1.2, hh * 1.15, yaw, opts.roll, opts.pitch)
-    sprite(R, rc, R.glyph('tile'), opts.rim, alpha)
-  end
-  if opts.back or not front then
-    sprite(R, corners, R.card('back'), WHITE, alpha, not front)
-  else
-    sprite(R, corners, R.card(id), tint, alpha)
-  end
-  if opts.rim and not opts.pitch then
-    -- and a ring of it over the card's edge, so the owner reads even on a card of the same colour
-    local ring = self:quad(x, y, z + 0.0006, hw * 1.07, hh * 1.05, yaw, opts.roll)
-    sprite(R, ring, R.glyph('rim'), opts.rim, alpha)
-  end
-  if opts.frozen and front and not opts.back then
-    sprite(R, self:quad(x, y, z + 0.0008, hw, hh, yaw, opts.roll, opts.pitch), R.glyph('ice'), WHITE, math.floor(170 * alpha / 255))
-  end
-  return corners
-end
-
 local function ownerColour(owner)
   return owner == 'A' and BLUE or ORANGE
 end
@@ -210,14 +214,54 @@ function Board:ownerYaw(owner)
   return yaw
 end
 
-local function find(list, pred)
-  for _, v in ipairs(list or {}) do
-    if pred(v) then return v end
+--- A card on (or over) the board: its face, or `back` = true for a hidden card, on the side
+--- the camera sees; a slim border in its owner's colour outside the card (never over it, so
+--- every value stays readable), and a soft shadow under it.
+function Board:card(R, id, x, y, z, yaw, opts)
+  opts = opts or {}
+  local s = opts.scale or 1
+  local hw, hh = self.W / 2 * s, self.H / 2 * s
+  local corners, n = self:quad(x, y, z, hw, hh, yaw, opts.roll, opts.pitch)
+  local front = faces(R, corners, n)
+  local alpha = opts.alpha or 255
+  local tint = opts.frozen and { 210, 238, 255 } or WHITE
+  if not opts.pitch then
+    local lift = opts.lift or 0
+    local shadowZ = math.max(0.001, z - 0.004 - lift)
+    local spread = 1 + lift / self.H * 0.6
+    local sc = self:quad(x + self.H * 0.025 + lift * 0.2, y - self.H * 0.035 - lift * 0.25, shadowZ, hw * 1.12 * spread, hh * 1.1 * spread, yaw)
+    sprite(R, sc, R.glyph('shadow'), WHITE, math.floor(150 * alpha / 255 / spread))
   end
+  if opts.rim and not opts.pitch then
+    sprite(R, self:quad(x, y, z - 0.0012, hw * 1.065, hh * 1.048, yaw, opts.roll, opts.pitch), R.glyph('tile'), opts.rim, alpha)
+  end
+  if opts.back or not front then
+    sprite(R, corners, R.card('back'), WHITE, alpha, not front)
+  else
+    sprite(R, corners, R.card(id), tint, alpha)
+  end
+  if opts.frozen and front and not opts.back then
+    local k = opts.ice or 1
+    sprite(R, self:quad(x, y, z + 0.0008, hw * (1 + 0.3 * (1 - k)), hh * (1 + 0.3 * (1 - k)), yaw, opts.roll, opts.pitch), R.glyph('ice'), WHITE, math.floor(170 * alpha / 255 * k))
+  end
+  return corners
 end
+
+--- A quarter of a card (a crumbling piece): `qx`, `qy` pick the quarter (0 or 1).
+function Board:piece(R, id, x, y, z, yaw, qx, qy, roll, alpha)
+  local uv = R.card(id)
+  local u0, v0, u1, v1 = uv[1], uv[2], uv[3], uv[4]
+  local um, vm = (u0 + u1) / 2, (v0 + v1) / 2
+  local pu = { qx == 0 and u0 or um, qy == 0 and v0 or vm, qx == 0 and um or u1, qy == 0 and vm or v1 }
+  sprite(R, (self:quad(x, y, z, self.W / 4, self.H / 4, yaw, roll)), pu, WHITE, alpha)
+end
+
+-------------------------------------------------------------------------------------------
+-- the board
 
 --- Draw the whole table. `now` is the game timer (ms).
 function Board:draw(R, now)
+  local dt = self.clock and math.min(100, now - self.clock) or 16
   self.clock = now
   local v = self.view
   -- drop finished animations
@@ -226,42 +270,60 @@ function Board:draw(R, now)
     if now < a.start + a.dur + 50 then live[#live + 1] = a end
   end
   self.anims = live
-  local spin = 0
-  local bf = find(self.anims, function(a) return a.kind == 'boardflip' and now >= a.start end)
-  if bf then spin = PI * (1 - easeInOut(clamp((now - bf.start) / bf.dur, 0, 1))) end
-  local pending = find(self.anims, function(a) return a.kind == 'boardflip' and now < a.start end)
-  if pending then spin = PI end
 
-  -- the board: a slab of cream wood on the table, as on smashandclash.in
+  -- a Flip turns the whole board over: it rises, turns half round and lands
+  local spin, liftAll = 0, 0
+  local bf = find(self.anims, function(a) return a.kind == 'boardflip' and now >= a.start end)
+  if bf then
+    local p = clamp((now - bf.start) / bf.dur, 0, 1)
+    spin = PI * (1 - backInOut(p))
+    liftAll = math.sin(p * PI) * self.H * 0.7
+  elseif find(self.anims, function(a) return a.kind == 'boardflip' end) then
+    spin = PI
+  end
+  -- a Boulder shakes the board
+  local quake = find(self.anims, function(a) return a.kind == 'quake' and now >= a.start and now < a.start + a.dur end)
+  local shakeX = 0
+  if quake then
+    local p = (now - quake.start) / quake.dur
+    shakeX = math.sin(p * 70) * self.H * 0.035 * (1 - p)
+  end
+
   local ex, ey = self:extents()
   local gx, gy = self:grid()
-  local T = self.T
+  local T = self.T + liftAll
   local flipYaw = (v and v.flip) and PI or 0
-  sprite(R, self:quad(self.H * 0.06, -self.H * 0.08, 0.001, ex * 1.12, ey * 1.14, spin), R.glyph('shadow'), WHITE, 170)
+  local function bxy(x, y) local a, b = self:boardXY(x, y, spin) return a + shakeX, b end
+  local function cxy(cell) local a, b = self:cellXY(cell, spin) return a + shakeX, b end
+
+  -- the slab: cream wood with a darker edge, as on smashandclash.in
+  sprite(R, self:quad(self.H * 0.06, -self.H * 0.08, 0.001, ex * 1.12, ey * 1.14, 0), R.glyph('shadow'), WHITE, math.floor(170 - liftAll / self.H * 120))
   local side = { 196, 176, 136 }
   for _, e in ipairs({ { 0, -ey, ex, 0 }, { 0, ey, ex, PI }, { -ex, 0, ey, -PI / 2 }, { ex, 0, ey, PI / 2 } }) do
-    local x, y = self:boardXY(e[1], e[2], spin)
-    sprite(R, self:quad(x, y, T / 2, e[3], T / 2, e[4] + spin + flipYaw, 0, PI / 2), R.board('slab'), side, 255)
+    local x, y = bxy(e[1], e[2])
+    sprite(R, self:quad(x, y, T - self.T / 2, e[3], self.T / 2, e[4] + spin + flipYaw, 0, PI / 2), R.board('slab'), side, 255)
   end
-  sprite(R, self:quad(0, 0, T, ex, ey, spin), R.board('slab'), WHITE, 255)
+  local sx, sy = bxy(0, 0)
+  sprite(R, self:quad(sx, sy, T, ex, ey, spin), R.board('slab'), WHITE, 255)
 
   -- A-E along both long edges, 1-3 down both short ones, each reading from the nearer chair
   local lw = self.M * 0.62
   for c = 0, 4 do
     local x0 = (c - 2) * (self.W + self.G)
     for _, e in ipairs({ { -1, 0 }, { 1, PI } }) do
-      local x, y = self:boardXY(x0, e[1] * (gy + self.M / 2), spin)
+      local x, y = bxy(x0, e[1] * (gy + self.M / 2))
       sprite(R, self:quad(x, y, T + 0.0006, lw / 2, lw / 2, e[2] + spin + flipYaw), R.label(COLS:sub(c + 1, c + 1)), WHITE, 235)
     end
   end
   for r = 0, 2 do
     local y0 = (r - 1) * (self.H + self.G)
     for _, e in ipairs({ { -1, 0 }, { 1, PI } }) do
-      local x, y = self:boardXY(e[1] * (gx + self.M / 2), y0, spin)
+      local x, y = bxy(e[1] * (gx + self.M / 2), y0)
       sprite(R, self:quad(x, y, T + 0.0006, lw / 2, lw / 2, e[2] + spin + flipYaw), R.label(tostring(r + 1)), WHITE, 235)
     end
   end
 
+  -- the tiles
   local power, chess = {}, {}
   for _, p in ipairs(v and v.power or {}) do power[p.cell] = p end
   for _, c in ipairs(v and v.chess or {}) do chess[c.cell] = PIECE[c.piece] end
@@ -276,7 +338,7 @@ function Board:draw(R, now)
   for r = 0, 2 do
     for c = 0, 4 do
       local cell = Board.cellName(r, c)
-      local x, y = self:cellXY(cell, spin)
+      local x, y = cxy(cell)
       local tw, th = self.W / 2 * 1.04, self.H / 2 * 1.03
       local yaw = spin + flipYaw
       local p = power[cell]
@@ -310,23 +372,36 @@ function Board:draw(R, now)
   -- the deck, on a little stand at chair A's left, as tall as the cards left in it
   if v and v.deck and v.deck > 0 then
     local dx, dy = self:boardXY(-(ex + self.W * 0.95), 0)
-    sprite(R, self:quad(dx, dy, T * 0.5, self.W * 0.72, self.H * 0.66, 0), R.board('slab'), side, 255)
+    sprite(R, self:quad(dx, dy, self.T * 0.5, self.W * 0.72, self.H * 0.66, 0), R.board('slab'), side, 255)
     local n = math.max(1, math.ceil(v.deck / 8))
     for i = 1, n do
-      self:card(R, 0, dx, dy, T * 0.5 + 0.003 + i * 0.004, (i % 2 == 0 and 0.05 or -0.04) + flipYaw, { back = true })
+      self:card(R, 0, dx, dy, self.T * 0.5 + 0.003 + i * 0.004, (i % 2 == 0 and 0.05 or -0.04) + flipYaw, { back = true })
     end
   end
 
-  -- the cards on the board (on the slab, B0 above the table)
-  local B0 = self.T + 0.008
-  local hidden = {}
+  self:drawBoardCards(R, now, cxy, T, spin)
+  self:drawHands(R, now, dt)
+  self:drawPlaying(R, now, spin)
+  self:drawEffects(R, now, cxy, T, spin)
+end
+
+--- The cards on the board, each with whatever is happening to it.
+function Board:drawBoardCards(R, now, cxy, T, spin)
+  local v = self.view
+  local B0 = T + 0.008
+  local busy = {}
   for _, a in ipairs(self.anims) do
-    if (a.kind == 'drop' or a.kind == 'hop') and now < a.start + a.dur then hidden[a.cell] = a end
+    if (a.kind == 'drop' or a.kind == 'hop' or a.kind == 'recruit') and now < a.start + a.dur then busy[a.cell] = a end
   end
   for _, t in ipairs(v and v.board or {}) do
-    local x, y = self:cellXY(t.cell, spin)
-    local a = hidden[t.cell]
+    local x, y = cxy(t.cell)
+    local a = busy[t.cell]
+    local yaw = self:ownerYaw(t.owner) + spin
     local flip = find(self.anims, function(f) return f.kind == 'flip' and f.cell == t.cell and now < f.start + f.dur end)
+    local freeze = find(self.anims, function(f) return f.kind == 'freeze' and f.cell == t.cell and now < f.start + f.dur end)
+    local ice = 1
+    if freeze then ice = now < freeze.start and 0 or easeOut(clamp((now - freeze.start) / freeze.dur, 0, 1)) end
+    local frozen = t.frozen and ice > 0
     if a and a.kind == 'drop' then
       if now >= a.start then
         local p = clamp((now - a.start) / a.dur, 0, 1)
@@ -337,92 +412,160 @@ function Board:draw(R, now)
           if p >= 1 then self.playing = nil end
         end
         if hx then
-          -- played from the hand: an arc from the fan down onto its tile, turning flat as it lands
+          -- played from the hand: an arc from the fan down onto its tile, turning flat as it
+          -- lands, with a little spin that settles and a bump on touchdown
           local e = easeInOut(p)
-          local cx, cy = hx + (x - hx) * e, hy + (y - hy) * e
-          local z = hz + (B0 - hz) * e + math.sin(e * PI) * self.H * 0.6
-          self:card(R, t.id, cx, cy, z, self:ownerYaw(t.owner) + spin, { rim = p > 0.8 and ownerColour(t.owner) or nil, frozen = t.frozen, scale = 0.62 + 0.38 * e, lift = math.max(0, z - B0) })
+          local cx, cy = lerp(hx, x, e), lerp(hy, y, e)
+          local z = lerp(hz, B0, bounce(p)) + math.sin(e * PI) * self.H * 0.5
+          local settle = (1 - e) * 0.5
+          self:card(R, t.id, cx, cy, z, yaw + settle, { rim = p > 0.85 and ownerColour(t.owner) or nil, frozen = frozen, scale = 0.6 + 0.4 * e, lift = math.max(0, z - B0) })
         else
-          local z = B0 + self.H * 0.9 * (1 - easeOut(p))
-          self:card(R, t.id, x, y, z, self:ownerYaw(t.owner) + spin, { rim = ownerColour(t.owner), frozen = t.frozen, scale = 1 + 0.18 * (1 - backOut(p)), lift = z - B0 })
+          local z = B0 + self.H * 0.9 * (1 - bounce(p))
+          self:card(R, t.id, x, y, z, yaw, { rim = ownerColour(t.owner), frozen = frozen, scale = 1 + 0.12 * (1 - p), lift = z - B0 })
         end
+        if p > 0.85 then self:ring(R, x, y, B0 - 0.002, (p - 0.85) / 0.15, ownerColour(t.owner)) end
       end
-    elseif a and a.kind == 'hop' then
+    elseif a and (a.kind == 'hop' or a.kind == 'recruit') then
+      local fx, fy = cxy(a.from)
       if now >= a.start then
-        local p = easeInOut(clamp((now - a.start) / a.dur, 0, 1))
-        local fx, fy = self:cellXY(a.from, spin)
-        local hx, hy = fx + (x - fx) * p, fy + (y - fy) * p
-        local z = B0 + math.sin(p * PI) * self.H * 0.8
-        self:card(R, t.id, hx, hy, z, self:ownerYaw(t.owner) + spin, { rim = ownerColour(t.owner), lift = z - B0 })
+        -- a hop (or a recruited card) lifts, flies along an arc and lands; a recruit turns over
+        -- to its new owner in the air
+        local p = clamp((now - a.start) / a.dur, 0, 1)
+        local e = easeInOut(p)
+        local z = B0 + math.sin(e * PI) * self.H * (a.kind == 'recruit' and 1.1 or 0.8)
+        local owner, roll = t.owner, 0
+        if a.kind == 'recruit' then
+          owner = p < 0.5 and (a.owner or t.owner) or t.owner
+          roll = p < 0.5 and p * 2 * PI or 0
+          if p >= 0.5 then roll = (p - 1) * 2 * PI end
+          roll = roll / 2
+        end
+        self:card(R, t.id, lerp(fx, x, e), lerp(fy, y, e), z, self:ownerYaw(owner) + spin, { rim = ownerColour(owner), roll = roll, lift = z - B0 })
+        if p > 0.85 then self:ring(R, x, y, B0 - 0.002, (p - 0.85) / 0.15, ownerColour(t.owner)) end
       else
-        local fx, fy = self:cellXY(a.from, spin)
-        self:card(R, t.id, fx, fy, B0, self:ownerYaw(t.owner) + spin, { rim = ownerColour(t.owner) })
+        local owner = a.kind == 'recruit' and (a.owner or t.owner) or t.owner
+        self:card(R, t.id, fx, fy, B0, self:ownerYaw(owner) + spin, { rim = ownerColour(owner) })
       end
     elseif flip and now >= flip.start then
+      -- a capture: the card jumps, turns right over to its new owner and lands with a flash
       local p = clamp((now - flip.start) / flip.dur, 0, 1)
       local owner = p < 0.5 and flip.from or t.owner
-      local roll = p < 0.5 and p * PI or (p - 1) * PI
-      local z = B0 + math.sin(p * PI) * self.H * 0.45
-      self:card(R, t.id, x, y, z, self:ownerYaw(owner) + spin, { rim = ownerColour(owner), roll = roll, frozen = t.frozen, lift = z - B0 })
+      local roll = p < 0.5 and backOut(p * 2) * PI / 2 or (1 - backOut((p - 0.5) * 2)) * -PI / 2
+      local z = B0 + math.sin(p * PI) * self.H * 0.7
+      self:card(R, t.id, x, y, z, self:ownerYaw(owner) + spin, { rim = ownerColour(owner), roll = roll, frozen = frozen, lift = z - B0, scale = 1 + 0.1 * math.sin(p * PI) })
+      if p > 0.7 then self:ring(R, x, y, B0 - 0.002, (p - 0.7) / 0.3, ownerColour(t.owner)) end
     else
-      local owner = flip and flip.from or t.owner
-      self:card(R, t.id, x, y, B0, self:ownerYaw(owner) + spin, { rim = ownerColour(owner), frozen = t.frozen })
+      local owner = (flip and flip.from) or t.owner
+      self:card(R, t.id, x, y, B0, self:ownerYaw(owner) + spin, { rim = ownerColour(owner), frozen = frozen, ice = ice })
+      if freeze and now >= freeze.start then
+        local p = clamp((now - freeze.start) / freeze.dur, 0, 1)
+        sprite(R, self:quad(x, y, B0 + 0.003, self.W * (0.7 + p), self.H * (0.6 + p * 0.8), spin), R.glyph('glow'), ICE, math.floor(220 * (1 - p)))
+      end
     end
   end
 
-  -- cards leaving the board: a boulder, a recruit, an overrun
+  -- cards leaving the board: a Boulder crumbles them, an overrun or a recruit lifts them away
   for _, a in ipairs(self.anims) do
     if a.kind == 'vanish' and now >= a.start and now < a.start + a.dur then
       local p = clamp((now - a.start) / a.dur, 0, 1)
-      local x, y = self:cellXY(a.cell, spin)
-      local shake = math.sin(p * 40) * self.H * 0.03 * (1 - p)
-      self:card(R, a.id, x + shake, y, B0 + p * self.H * 0.25, self:ownerYaw(a.owner) + spin + p * 1.2, { rim = ownerColour(a.owner), scale = 1 - 0.7 * p, alpha = math.floor(255 * (1 - p)) })
-    end
-  end
-
-  self:drawHands(R, now)
-  self:drawPlaying(R, now, spin)
-
-  -- an effect card shown over the board
-  for _, a in ipairs(self.anims) do
-    if a.kind == 'callout' and now >= a.start and now < a.start + a.dur then
-      local p = clamp((now - a.start) / a.dur, 0, 1)
-      local rise = easeOut(math.min(1, p * 2.5))
-      local fade = p > 0.8 and (1 - (p - 0.8) / 0.2) or 1
-      local yaw = (self.view and self.view.viewer == 'B') and PI or 0
-      if self.view and self.view.flip then yaw = yaw + PI end
-      self:card(R, a.id, 0, 0, self.H * (0.35 + 0.9 * rise), yaw, { scale = 1.6 * (0.6 + 0.4 * rise), pitch = math.rad(70), alpha = math.floor(255 * fade), roll = (1 - rise) * PI * 2 })
-    end
-  end
-
-  -- a character's strike drawing, standing over the tile it attacks from
-  for _, a in ipairs(self.anims) do
-    if a.kind == 'strike' and now >= a.start and now < a.start + a.dur then
-      local p = clamp((now - a.start) / a.dur, 0, 1)
-      local x, y = self:cellXY(a.cell, spin)
-      local cx, cy = R.camera()
-      local wx, wy = self:world(x, y, 0)
-      local yaw = math.atan(cx - wx, -(cy - wy)) - math.rad(self.heading)
-      local pop = p < 0.3 and backOut(p / 0.3) or 1
-      local fade = p > 0.75 and (1 - (p - 0.75) / 0.25) or 1
-      local size = self.H * 1.1 * pop
-      local corners = self:quad(x, y, self.T + 0.01 + size * 0.95, size, size, yaw, 0, PI / 2)
-      sprite(R, corners, R.fx(a), WHITE, math.floor(255 * fade), a.mirror)
+      local x, y = cxy(a.cell)
+      local yaw = self:ownerYaw(a.owner) + spin
+      if a.crumble then
+        -- shaken, then broken in four, the pieces flung out and falling
+        if p < 0.25 then
+          local shake = math.sin(p * 120) * self.H * 0.04
+          self:card(R, a.id, x + shake, y, B0, yaw, { rim = ownerColour(a.owner) })
+        else
+          local q = (p - 0.25) / 0.75
+          for qy = 0, 1 do
+            for qx = 0, 1 do
+              local dx, dy = (qx - 0.5) * 2, (0.5 - qy) * 2
+              local ox, oy = self.W / 4 * dx + dx * q * self.H * 0.7, self.H / 4 * dy + dy * q * self.H * 0.5
+              local cs, sn = math.cos(yaw), math.sin(yaw)
+              local z = B0 + math.sin(math.min(1, q * 1.6) * PI) * self.H * 0.5 - q * q * self.H * 0.3
+              self:piece(R, a.id, x + ox * cs - oy * sn, y + ox * sn + oy * cs, math.max(B0, z), yaw + q * 2 * dx, qx, qy, q * 3 * dy, math.floor(255 * (1 - q)))
+            end
+          end
+          sprite(R, self:quad(x, y, B0 + 0.004, self.W * (0.6 + q * 1.4), self.H * (0.5 + q), spin), R.glyph('shadow'), { 120, 100, 80 }, math.floor(160 * (1 - q)))
+        end
+      else
+        self:card(R, a.id, x, y, B0 + easeOut(p) * self.H * 0.5, yaw + p * 1.4, { rim = ownerColour(a.owner), scale = 1 - 0.6 * p, alpha = math.floor(255 * (1 - p)) })
+      end
     end
   end
 end
+
+--- A ring that opens out from a tile as a card lands on it.
+function Board:ring(R, x, y, z, p, rgb)
+  local s = 1 + p * 0.5
+  sprite(R, self:quad(x, y, z, self.W / 2 * 1.1 * s, self.H / 2 * 1.08 * s, 0), R.glyph('rim'), rgb, math.floor(230 * (1 - p)))
+end
+
+--- What plays over the board: an effect card called out, a character's strike drawing, the
+--- numbers each attack compares, and the hands swapping across the table.
+function Board:drawEffects(R, now, cxy, T, spin)
+  local v = self.view
+  for _, a in ipairs(self.anims) do
+    if now >= a.start and now < a.start + a.dur then
+      local p = clamp((now - a.start) / a.dur, 0, 1)
+      if a.kind == 'callout' then
+        -- the effect card rises over the board, spins to face the players, glows, and goes
+        local rise = easeOut(math.min(1, p * 2.2))
+        local fade = p > 0.82 and (1 - (p - 0.82) / 0.18) or 1
+        local yaw = (v and v.viewer == 'B') and PI or 0
+        if v and v.flip then yaw = yaw + PI end
+        local z = T + self.H * (0.4 + 0.8 * rise)
+        sprite(R, self:quad(0, 0, z - 0.004, self.W * 2.2, self.W * 2.2, yaw, 0, math.rad(70)), R.glyph('glow'), SUN, math.floor(200 * fade * rise))
+        self:card(R, a.id, 0, 0, z, yaw, { scale = 1.7 * (0.5 + 0.5 * backOut(math.min(1, p * 2))), pitch = math.rad(70), alpha = math.floor(255 * fade), roll = (1 - rise) * PI * 2 })
+      elseif a.kind == 'strike' then
+        -- the attacker's strike drawing, standing over its tile, facing the camera
+        local x, y = cxy(a.cell)
+        local cx, cy = R.camera()
+        local wx, wy = self:world(x, y, 0)
+        local yaw = math.atan(cx - wx, -(cy - wy)) - math.rad(self.heading)
+        local pop = p < 0.3 and backOut(p / 0.3) or 1
+        local fade = p > 0.75 and (1 - (p - 0.75) / 0.25) or 1
+        local size = self.H * 1.1 * pop
+        local corners = self:quad(x, y, T + 0.01 + size * 0.95, size, size, yaw, 0, PI / 2)
+        sprite(R, corners, R.fx(a), WHITE, math.floor(255 * fade), a.mirror)
+      elseif a.kind == 'compare' and R.text then
+        -- "6 ≥ 5": what the attack compared, between the two cards; gold when it takes the card
+        local x1, y1 = cxy(a.cell)
+        local x2, y2 = cxy(a.toward)
+        local x, y = (x1 + x2) / 2, (y1 + y2) / 2
+        local pop = p < 0.25 and backOut(p / 0.25) or 1
+        local fade = p > 0.8 and (1 - (p - 0.8) / 0.2) or 1
+        local wx, wy, wz = self:world(x, y, T + self.H * (0.35 + 0.25 * easeOut(p)))
+        R.text(wx, wy, wz, a.text, a.win and SUN or { 255, 120, 120 }, math.floor(255 * fade), 0.55 * pop)
+      elseif a.kind == 'swap' then
+        -- both hands fly across the table, face down, and change places
+        local pa = self:handPoint('A')
+        local pb = self:handPoint('B')
+        if pa and pb then
+          for k = 1, 5 do
+            local d = (k - 3) * 0.06
+            local e = easeInOut(clamp(p * 1.15 - (k - 1) * 0.03, 0, 1))
+            for dir = 0, 1 do
+              local s, t2 = dir == 0 and pa or pb, dir == 0 and pb or pa
+              local px = lerp(s[1], t2[1], e) + d
+              local py = lerp(s[2], t2[2], e)
+              local pz = lerp(s[3], t2[3], e) + math.sin(e * PI) * self.H * 1.2
+              self:card(R, 0, px, py, pz, e * PI * 2 + k, { back = true, scale = 0.58, lift = pz })
+            end
+          end
+        end
+      end
+    end
+  end
+end
+
+-------------------------------------------------------------------------------------------
+-- the hands
 
 --- Where each chair's player holds their cards, in the world, from their body (client/tables.lua
 --- reads it from the ped's hands and head every frame): { A = { anchor = {x,y,z}, head = {x,y,z} } }.
 function Board:setHands(hands)
   self.hands = hands
-end
-
---- World to table coordinates (the inverse of Board:world).
-function Board:toLocal(x, y, z)
-  local o = self.origin
-  local dx, dy = x - o.x, y - o.y
-  return dx * self.ax[1] + dy * self.ax[2], dx * self.ay[1] + dy * self.ay[2], z - o.z
 end
 
 local function v3(a) return { a[1] or a.x, a[2] or a.y, a[3] or a.z } end
@@ -435,26 +578,31 @@ local function norm3(a)
 end
 local function cross3(a, b) return { a[2] * b[3] - a[3] * b[2], a[3] * b[1] - a[1] * b[3], a[1] * b[2] - a[2] * b[1] } end
 
--- the size of a card held in the hand: a real card, a little larger so it reads on screen
-local HAND_H = 0.12
+-- a card held in the hand: a real card, a little larger so it reads on screen
+local HAND_H = 0.1
+local HAND_W = HAND_H * 0.7333
 
---- The fan a player holds: for card i of n, its centre, its up and right axes and its normal
---- (towards the holder's eyes). `lift` raises a picked card out of the fan.
-function Board:fanSlot(hand, i, n, lift)
+--- The fan a player holds, as a real hand of cards: each card turned about a point below the
+--- hand, far enough apart that every card's left half, with its values, shows past the next.
+--- `s` is the card's eased state: lift (out of the fan), pull (towards the eyes), scale, tilt
+--- (0 = in the fan, 1 = upright).
+function Board:fanSlot(hand, i, n, s)
+  s = s or {}
   local anchor, head = v3(hand.anchor), v3(hand.head)
   local f = norm3(sub3(head, anchor))
   local r = norm3(cross3({ 0, 0, 1 }, f))
   local u = cross3(f, r)
-  -- spread wide enough that each card's corner, with its values, shows past the next one
-  local spread = math.rad(math.min(17, 72 / math.max(1, n - 1)))
-  local a = (i - (n + 1) / 2) * spread
+  local radius = HAND_H * 1.15
+  local spread = math.rad(math.min(14, 64 / math.max(1, n - 1)))
+  local a = (i - (n + 1) / 2) * spread * (1 - (s.tilt or 0))
   -- card 1 on the left, each next one turned a little further right (seen by the holder)
-  local up = add({ 0, 0, 0 }, u, math.cos(a))
-  up = add(up, r, math.sin(a))
-  local right = add({ 0, 0, 0 }, r, math.cos(a))
-  right = add(right, u, -math.sin(a))
-  local c = add(anchor, up, HAND_H * 0.5 + (lift or 0))
-  c = add(c, f, (i - 1) * 0.0025 + (lift and lift > 0 and 0.012 or 0))
+  local up = add(add({ 0, 0, 0 }, u, math.cos(a)), r, math.sin(a))
+  local right = add(add({ 0, 0, 0 }, r, math.cos(a)), u, -math.sin(a))
+  local pivot = add(anchor, u, -radius * 0.55)
+  local c = add(pivot, up, radius * 0.55 + HAND_H * 0.5 + (s.lift or 0))
+  -- the upright card keeps its place across the fan
+  if (s.tilt or 0) > 0 then c = add(c, r, (i - (n + 1) / 2) * HAND_W * 0.62 * s.tilt) end
+  c = add(c, f, (i - 1) * 0.0022 + (s.pull or 0))
   return c, up, right, f
 end
 
@@ -462,29 +610,27 @@ end
 function Board:heldCard(R, id, c, up, right, f, opts)
   opts = opts or {}
   local s = opts.scale or 1
-  local hw, hh = HAND_H * 0.7333 / 2 * s, HAND_H / 2 * s
+  local hw, hh = HAND_W / 2 * s, HAND_H / 2 * s
   local function p(kx, ky) return { c[1] + right[1] * hw * kx + up[1] * hh * ky, c[2] + right[2] * hw * kx + up[2] * hh * ky, c[3] + right[3] * hw * kx + up[3] * hh * ky } end
   local corners = { p(-1, 1), p(1, 1), p(1, -1), p(-1, -1) }
   local cx, cy, cz = R.camera()
   local front = (cx - c[1]) * f[1] + (cy - c[2]) * f[2] + (cz - c[3]) * f[3] >= 0
   local alpha = opts.alpha or 255
-  if opts.glow and front and not opts.back then
+  if (opts.glow or 0) > 0.02 and front and not opts.back then
     -- the picked card: a sun-yellow edge behind it
-    local g = { p(-1.12, 1.09), p(1.12, 1.09), p(1.12, -1.09), p(-1.12, -1.09) }
+    local g = { p(-1.1, 1.08), p(1.1, 1.08), p(1.1, -1.08), p(-1.1, -1.08) }
     for _, q in ipairs(g) do q[1], q[2], q[3] = q[1] - f[1] * 0.001, q[2] - f[2] * 0.001, q[3] - f[3] * 0.001 end
-    sprite(R, g, R.glyph('tile'), SUN, alpha)
+    sprite(R, g, R.glyph('tile'), SUN, math.floor(alpha * opts.glow))
   end
   if opts.back or not front then
     sprite(R, corners, R.card('back'), WHITE, alpha, not front)
   else
-    sprite(R, corners, R.card(id), WHITE, alpha)
+    sprite(R, corners, R.card(id), opts.dim and { 175, 175, 175 } or WHITE, alpha)
   end
   return corners
 end
 
---- Both hands. A player in a chair holds theirs as a fan; the viewer sees their own faces, everyone
---- else the backs. A seat with nobody in its chair (an opponent on another app) stands its backs
---- at its edge of the table.
+--- Where a seat stands its hand at the table's edge when nobody holds it.
 function Board:handSlots(chair, n)
   local _, ey = self:extents()
   local out = {}
@@ -498,12 +644,6 @@ function Board:handSlots(chair, n)
   return out
 end
 
--- The chair each game seat sits at.
-function Board:chairOf(seat)
-  if self.view and self.view.flip then return seat == 'A' and 'B' or 'A' end
-  return seat
-end
-
 --- The deck stand's top, in the world: where a drawn card starts.
 function Board:deckPoint()
   local ex = self:extents()
@@ -511,11 +651,32 @@ function Board:deckPoint()
   return { self:world(dx, dy, self.T * 0.5 + 0.03) }
 end
 
-function Board:drawHands(R, now)
+--- The middle of a chair's hand, in table coordinates (held, or standing at the edge).
+function Board:handPoint(chair)
+  local held = self.hands and self.hands[chair]
+  if held then
+    local a = v3(held.anchor)
+    local x, y, z = self:toLocal(a[1], a[2], a[3] + HAND_H * 0.45)
+    return { x, y, z }
+  end
+  local _, ey = self:extents()
+  return { 0, (chair == 'A' and -1 or 1) * (ey + self.H * 0.42), self.H * 0.4 }
+end
+
+-- ease a value towards its target, at the same pace whatever the frame rate
+local function toward(cur, target, dt, rate)
+  return cur + (target - cur) * (1 - math.exp(-dt / 1000 * (rate or 14)))
+end
+
+function Board:drawHands(R, now, dt)
   local v = self.view
   if not v or not v.hands then return end
   self.handCorners = {}
+  self.handOrder = {}
   local pitch = math.rad(62)
+  local swapping = find(self.anims, function(a) return a.kind == 'swap' and now >= a.start and now < a.start + a.dur end)
+  if swapping then return end
+  local seen = {}
   for _, seat in ipairs({ 'A', 'B' }) do
     local mine = v.viewer == seat and v.myHand
     local count = mine and #v.myHand or (v.hands[seat] or 0)
@@ -529,63 +690,68 @@ function Board:drawHands(R, now)
       if not (mine and self.playing and self.playing.id == id) then shown[#shown + 1] = { i = i, id = id } end
     end
     local n = #shown
-    -- the card the player is looking at (scrolled to, hovered or picked) comes to the front, whole
+    -- the card the player is looking at (scrolled to, hovered or picked) comes up, upright, whole
     local focus = nil
     if mine then
       if self.hover and self.hover.kind == 'hand' then focus = self.hover.index + 1
       elseif ui.focus ~= nil then focus = ui.focus + 1
       elseif ui.selected ~= nil then focus = ui.selected + 1 end
     end
-    local front = nil
+    local later = nil
     for k, card in ipairs(shown) do
       local i, id = card.i, card.id
       local sel = mine and ui.selected == i - 1
       local dead = mine and ui.myTurn and ui.dead and ui.dead[i]
       local fresh = find(self.anims, function(a) return a.kind == 'draw' and a.index == i - 1 and (a.seat == nil or a.seat == seat) and now < a.start + a.dur end)
       if held then
-        local c, up, right, f = self:fanSlot(held, k, n, sel and HAND_H * 0.4 or 0)
-        local alpha = dead and 160 or 255
-        local scale = 1
+        -- every card eases to where it should be: scrolling, picking and playing glide
+        local key = seat .. ':' .. (mine and tostring(id) or tostring(i))
+        seen[key] = true
+        local st = self.fan[key] or { lift = 0, pull = 0, scale = 1, tilt = 0, glow = 0 }
+        local isFocus = mine and focus == i
+        st.lift = toward(st.lift, isFocus and HAND_H * (sel and 0.62 or 0.5) or (sel and HAND_H * 0.3 or 0), dt)
+        st.pull = toward(st.pull, isFocus and 0.02 or 0, dt)
+        st.tilt = toward(st.tilt, isFocus and 1 or 0, dt)
+        st.scale = toward(st.scale, isFocus and 1.08 or 1, dt)
+        st.glow = toward(st.glow, sel and 1 or 0, dt, 18)
+        self.fan[key] = st
+        local c, up, right, f = self:fanSlot(held, k, n, st)
+        local alpha = 255
+        local scale = st.scale
         if fresh then
           -- a card drawn from the deck flies into its place in the fan
           if now < fresh.start then alpha = 0
           else
             local p = easeOut(clamp((now - fresh.start) / fresh.dur, 0, 1))
             local d = self:deckPoint()
-            c = { d[1] + (c[1] - d[1]) * p, d[2] + (c[2] - d[2]) * p, d[3] + (c[3] - d[3]) * p + math.sin(p * PI) * 0.18 }
+            c = { lerp(d[1], c[1], p), lerp(d[2], c[2], p), lerp(d[3], c[3], p) + math.sin(p * PI) * 0.16 }
             scale = 0.7 + 0.3 * p
           end
         end
         if alpha > 0 then
-          if mine and focus == i and not fresh then
-            front = { i = i, id = id, sel = sel, alpha = alpha }
-          elseif mine then
-            self.handCorners[i] = self:heldCard(R, id, c, up, right, f, { alpha = alpha, glow = sel, scale = scale })
-          else
-            self:heldCard(R, 0, c, up, right, f, { back = true, scale = scale })
+          local draw = function()
+            local corners = self:heldCard(R, mine and id or 0, c, up, right, f, { back = not mine, alpha = alpha, glow = st.glow, scale = scale, dim = dead })
+            if mine then
+              self.handCorners[i] = corners
+              self.handOrder[#self.handOrder + 1] = i
+            end
           end
+          -- the card in front is drawn last, over its neighbours
+          if st.tilt > 0.5 then later = draw else draw() end
         end
       else
-        -- nobody in that chair: the hand stands at its edge (the viewer's own only in first person)
-        if not mine or ui.hand3d then
+        -- nobody in that chair (an opponent on another app): the hand stands at its edge
+        if not mine then
           local slot = self:handSlots(chair, n)[k]
           local yaw = chair == 'A' and 0 or PI
-          local hov = mine and focus == i
-          local liftZ = (sel and self.H * 0.3 or 0) + (hov and self.H * 0.08 or 0)
-          local corners = self:card(R, mine and id or 0, slot.x, slot.y, 0.006 + liftZ, yaw, { pitch = sel and math.rad(74) or pitch, back = not mine, alpha = dead and 150 or 255 })
-          if mine then self.handCorners[i] = corners end
+          self:card(R, 0, slot.x, slot.y, 0.006, yaw, { pitch = pitch, back = true })
         end
       end
     end
-    if front and held then
-      -- upright, raised and a little nearer the eyes, over the rest: all four values in view
-      local k = 1
-      for j, card in ipairs(shown) do if card.i == front.i then k = j end end
-      local c, _, _, f = self:fanSlot(held, k, n, HAND_H * (front.sel and 0.62 or 0.5))
-      local _, up, right = self:fanSlot(held, (n + 1) / 2, n, 0)
-      c = { c[1] + f[1] * 0.035, c[2] + f[2] * 0.035, c[3] + f[3] * 0.035 }
-      self.handCorners[front.i] = self:heldCard(R, front.id, c, up, right, f, { alpha = front.alpha, glow = front.sel, scale = 1.18 })
-    end
+    if later then later() end
+  end
+  for key in pairs(self.fan) do
+    if not seen[key] then self.fan[key] = nil end
   end
 end
 
@@ -609,8 +775,8 @@ function Board:drawPlaying(R, now, spin)
   local hx, hy, hz = self:handStart(v.viewer or 'A')
   local p = easeOut(clamp((now - pl.start) / 380, 0, 1))
   local cx, cy, cz = x, y, hoverZ
-  if hx then cx, cy, cz = hx + (x - hx) * p, hy + (y - hy) * p, hz + (hoverZ - hz) * p + math.sin(p * PI) * self.H * 0.3 end
-  self:card(R, pl.id, cx, cy, cz, self:ownerYaw(v.viewer or 'A') + spin, { scale = 0.62 + 0.38 * p, lift = cz - B0 })
+  if hx then cx, cy, cz = lerp(hx, x, p), lerp(hy, y, p), lerp(hz, hoverZ, p) + math.sin(p * PI) * self.H * 0.3 end
+  self:card(R, pl.id, cx, cy, cz, self:ownerYaw(v.viewer or 'A') + spin + (1 - p) * 0.5, { scale = 0.62 + 0.38 * p, lift = cz - B0 })
 end
 
 --- Where a card played from a seat's hand starts its flight: the middle of the fan, in table
@@ -647,11 +813,13 @@ local function screenPoly(R, corners)
   return out
 end
 
---- What is under the screen point (0..1): one of the viewer's hand cards, or a tile.
+--- What is under the screen point (0..1): one of the viewer's hand cards (the one drawn on
+--- top first), or a tile.
 function Board:pick(R, sx, sy)
-  for i = #(self.handCorners or {}), 1, -1 do
-    local c = self.handCorners[i]
-    local poly = c and screenPoly(R, c)
+  local order = self.handOrder or {}
+  for j = #order, 1, -1 do
+    local i = order[j]
+    local poly = self.handCorners[i] and screenPoly(R, self.handCorners[i])
     if poly and inside(sx, sy, poly) then return { kind = 'hand', index = i - 1 } end
   end
   for r = 0, 2 do

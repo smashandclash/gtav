@@ -91,7 +91,8 @@ end)
 cb('move', function(d)
   if type(d.table) ~= 'string' then return end
   if d.view then Tables.view(d.table, d.view) end
-  Tables.animate(d.table, d.steps)
+  -- the players' hands play their part: a card played, a card drawn
+  for _, act in ipairs(Tables.animate(d.table, d.steps) or {}) do Tables.act(d.table, act) end
 end)
 
 cb('pointer', function(d)
@@ -188,9 +189,6 @@ CreateThread(function()
   while true do
     if Tables.seated() then
       HideHudAndRadarThisFrame()
-      -- your own body would sit between your eyes and the table: on your screen it is hidden (everyone
-      -- else still sees you sitting there, holding your cards)
-      SetEntityLocallyInvisible(PlayerPedId())
       DisableControlAction(0, 30, true) -- move
       DisableControlAction(0, 31, true)
       DisableControlAction(0, 24, true) -- attack

@@ -15,6 +15,8 @@ async function start(): Promise<void> {
   const ctl = new Controller(readProfile(hello.profile), ui);
   ui.attach(ctl);
   const spectator = new Spectator(ctl.sc, () => ctl.cards, () => ctl.kit?.colors ?? {});
+  // the dev page's test handle (never in the build)
+  if (import.meta.env.DEV) (window as unknown as { __snc: unknown }).__snc = { ui, ctl };
 
   onGameMessage((m) => {
     switch (m.type) {
@@ -52,6 +54,7 @@ async function start(): Promise<void> {
     canvas.className = 'sim';
     document.body.prepend(canvas);
     const sim = import.meta.env.DEV ? await (await import('./sim/sim')).createSim(canvas) : null;
+    if (sim) (window as unknown as { __snc: Record<string, unknown> }).__snc.sim = sim;
     if (sim) setStandIn((event, d) => {
       if (event === 'view') return sim.view(String(d.table), d.view), { ok: true };
       if (event === 'move') return sim.move(String(d.table), d.steps as unknown[], d.view), { ok: true };

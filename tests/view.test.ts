@@ -70,8 +70,36 @@ describe('a move on the table', () => {
   });
 
   it('brings the card you draw into your hand', () => {
-    const { steps } = stepsFor(state({}, { hand: [1, 2, 3] }), state({ A1: { id: 1, owner: 'A' } }, { hand: [2, 3, 9] }), [], cards);
-    expect(steps.find((s) => s.kind === 'draw')).toMatchObject({ index: 2 });
+    const { steps } = stepsFor(state({}, { hand: [1, 2, 3] }), state({ A1: { id: 1, owner: 'A' } }, { hand: [2, 3, 9] }), [{ type: 'cardsDrawn', player: 'A', count: 1 }], cards, 'A');
+    expect(steps.find((s) => s.kind === 'draw')).toMatchObject({ index: 2, seat: 'A' });
+  });
+
+  it('shows what each attack compared: "5 >= 5" takes the card, "4 < 6" holds', () => {
+    // Pengu 5/4/3/2 placed by A on C2: north 5 against C3's south, east 4 against D2's west
+    const deck = new Map<number, Card>([
+      [1, { id: 1, name: 'Pengu', kind: 'character', top: 5, right: 4, bottom: 3, left: 2, color: 'pink', image: '' } as Card],
+      [2, { id: 2, name: 'X', kind: 'character', top: 1, right: 1, bottom: 5, left: 1, color: 'blue', image: '' } as Card],
+      [3, { id: 3, name: 'Y', kind: 'character', top: 1, right: 6, bottom: 1, left: 1, color: 'blue', image: '' } as Card],
+    ]);
+    // seat B's cards are turned round: C3's south is its printed top (5); D2's west is its printed right (6)
+    deck.set(2, { ...deck.get(2)!, top: 5, bottom: 1 } as Card);
+    const before = state({ C3: { id: 2, owner: 'B' }, D2: { id: 3, owner: 'B' } });
+    const after = state({ C2: { id: 1, owner: 'A' }, C3: { id: 2, owner: 'A' }, D2: { id: 3, owner: 'B' } });
+    const { steps } = stepsFor(before, after, [{ type: 'cardPlaced', player: 'A', cardId: 1, cell: { r: 1, c: 2 } }], deck, 'A');
+    const sums = steps.filter((s) => s.kind === 'compare').map((s) => `${s.toward} ${s.text} ${s.win}`).sort();
+    expect(sums).toEqual(['C3 5 >= 5 true', 'D2 4 < 6 false']);
+    expect(steps.find((s) => s.kind === 'drop')).toMatchObject({ fromHand: true, seat: 'A' });
+  });
+
+  it('breaks up what a Boulder takes, flies a recruit across, and swaps the hands', () => {
+    const b = stepsFor(state({ B2: { id: 1, owner: 'A' } }), state({}), [{ type: 'effectPlayed', effect: 'BOULDER', cardId: 101, player: 'B' }, { type: 'boulderRemoved', cells: [{ r: 1, c: 1 }] }], cards);
+    expect(b.steps.find((s) => s.kind === 'vanish')).toMatchObject({ crumble: true });
+    expect(b.steps.some((s) => s.kind === 'quake')).toBe(true);
+    const r = stepsFor(state({ A3: { id: 1, owner: 'B' } }), state({ B1: { id: 1, owner: 'A' } }), [{ type: 'cardRecruited', from: { r: 2, c: 0 }, to: { r: 0, c: 1 }, cardId: 1, newOwner: 'A' }], cards);
+    expect(r.steps.find((s) => s.kind === 'recruit')).toMatchObject({ cell: 'B1', from: 'A3', owner: 'B' });
+    expect(r.steps.some((s) => s.kind === 'vanish')).toBe(false);
+    const w = stepsFor(state({}), state({}), [{ type: 'effectPlayed', effect: 'SWAP', cardId: 105, player: 'A' }, { type: 'handsSwapped' }], cards);
+    expect(w.steps.map((s) => s.kind)).toEqual(['callout', 'swap']);
   });
 });
 
