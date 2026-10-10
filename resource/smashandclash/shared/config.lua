@@ -19,6 +19,12 @@ Config.ChairTurn = 180.0
 Config.ChairGap = 0.42
 Config.SeatHeight = 0.5
 Config.SitScenario = 'PROP_HUMAN_SEAT_CHAIR_MP_PLAYER'
+-- The pose that holds the cards in front of the chest, over the seated one: the first the game has.
+Config.HoldAnims = {
+  { 'amb@code_human_in_bus_passenger_idles@female@tablet@base', 'base' },
+  { 'amb@world_human_seat_wall_tablet@female@base', 'base' },
+  { 'cellphone@', 'cellphone_text_read_base' },
+}
 
 -- Tables are built within this distance, and the board is drawn within the second.
 Config.SpawnDistance = 90.0

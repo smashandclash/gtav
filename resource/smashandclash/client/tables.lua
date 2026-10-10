@@ -146,18 +146,30 @@ function Tables.mine()
   return me.id and list[me.id]
 end
 
-local function camLookAt(pos, at)
+local function camLookAt(pos, at, ease)
+  local fresh = not cam
   if not cam then cam = CreateCam('DEFAULT_SCRIPTED_CAMERA', true) end
   SetCamCoord(cam, pos.x, pos.y, pos.z)
   PointCamAtCoord(cam, at.x, at.y, at.z)
-  SetCamFov(cam, camMode == 'first' and 62.0 or 50.0)
+  SetCamFov(cam, camMode == 'first' and 66.0 or 50.0)
+  -- through your own eyes the cards are a hand's length away: let the camera see that close
+  SetCamNearClip(cam, camMode == 'first' and 0.03 or 0.1)
   SetCamActive(cam, true)
-  RenderScriptCams(true, true, 600, true, true)
+  if fresh or ease then RenderScriptCams(true, true, 600, true, true) end
+end
+
+-- Where a seated player's eyes are and which way they face.
+local function eyes(ped)
+  local head = GetPedBoneCoords(ped, 31086, 0.0, 0.0, 0.0)
+  local fwd = GetEntityForwardVector(ped)
+  return head, fwd
 end
 
 --- Point the camera for the chosen view: over your shoulder, from above, or your own eyes.
 function Tables.camera(mode)
+  local changed = mode ~= nil and mode ~= camMode
   if mode then camMode = mode end
+  mode = changed and mode or nil
   local t = Tables.mine()
   if not t or not t.board then return end
   local b = t.board
@@ -168,9 +180,11 @@ function Tables.camera(mode)
   if camMode == 'top' then
     camLookAt(at(0, -0.12, b.H * 7.5), at(0, -0.02, 0))
   elseif camMode == 'first' then
-    local head = GetPedBoneCoords(PlayerPedId(), 31086, 0.0, 0.0, 0.0)
-    local eye = at(0, -(ey + b.H * 1.6), 0)
-    camLookAt(vector3(eye.x, eye.y, head.z + 0.05), at(0, -b.H * 0.4, 0))
+    -- your own eyes: just in front of the face, looking down past your cards at the board
+    local head, fwd = eyes(PlayerPedId())
+    local eye = vector3(head.x + fwd.x * 0.13, head.y + fwd.y * 0.13, head.z + 0.03)
+    local target = at(0, -b.H * 0.15, 0)
+    camLookAt(eye, target, mode ~= nil)
   else
     camLookAt(at(0, -(ey + b.H * 3.6), b.H * 4.6), at(0, -b.H * 0.35, 0))
   end
@@ -206,7 +220,8 @@ function Tables.onSeated(id, chair)
     local pos, facing = chairSpot(t, chair)
     ClearPedTasksImmediately(ped)
     TaskStartScenarioAtPosition(ped, Config.SitScenario, pos.x, pos.y, pos.z + Config.SeatHeight, facing, 0, true, true)
-    Wait(400)
+    Wait(1200)
+    Tables.holdCards(ped)
     Tables.camera()
     Nui.open(Tables.context())
   end)
@@ -216,6 +231,7 @@ function Tables.onStood(id)
   if me.id ~= id and id then return end
   me.id, me.chair = nil, nil
   cameraOff()
+  ClearPedSecondaryTask(PlayerPedId())
   ClearPedTasks(PlayerPedId())
   Nui.close()
 end
@@ -260,6 +276,57 @@ local function help(text)
   EndTextCommandDisplayHelp(0, false, false, -1)
 end
 
+--- Hold the hand in front of the chest, both hands: an upper-body pose that plays over the
+--- seated one (a secondary task), so the player stays in the chair.
+function Tables.holdCards(ped)
+  for _, a in ipairs(Config.HoldAnims) do
+    if DoesAnimDictExist(a[1]) then
+      RequestAnimDict(a[1])
+      local t0 = GetGameTimer()
+      while not HasAnimDictLoaded(a[1]) and GetGameTimer() - t0 < 3000 do Wait(20) end
+      if HasAnimDictLoaded(a[1]) then
+        -- 49 = loop + upper body + secondary: the arms hold, the seat keeps the legs
+        TaskPlayAnim(ped, a[1], a[2], 4.0, 4.0, -1, 49, 0.0, false, false, false)
+        RemoveAnimDict(a[1])
+        return true
+      end
+    end
+  end
+  return false
+end
+
+-- A seated player's body: their hands (where the cards are held) and their eyes.
+local function handOf(ped)
+  if not ped or ped == 0 or not DoesEntityExist(ped) then return nil end
+  local head, fwd = eyes(ped)
+  local l = GetPedBoneCoords(ped, 18905, 0.0, 0.0, 0.0)
+  local r = GetPedBoneCoords(ped, 57005, 0.0, 0.0, 0.0)
+  local mid = vector3((l.x + r.x) / 2, (l.y + r.y) / 2, (l.z + r.z) / 2)
+  -- the hands in front of the chest hold the fan; resting in the lap, it goes where they would be
+  local held = #(mid - head) < 0.62 and mid.z > head.z - 0.55
+  local anchor = held and vector3(mid.x + fwd.x * 0.03, mid.y + fwd.y * 0.03, mid.z + 0.02)
+    or vector3(head.x + fwd.x * 0.34, head.y + fwd.y * 0.34, head.z - 0.26)
+  return { anchor = { anchor.x, anchor.y, anchor.z }, head = { head.x, head.y, head.z + 0.04 } }
+end
+
+-- Who sits in each chair of a table, as bodies in the world.
+local function handsAt(t)
+  local hands = {}
+  for _, chair in ipairs({ 'A', 'B' }) do
+    local seat = t.def.seats[chair]
+    if seat then
+      local ped
+      if seat.id == myServerId then ped = PlayerPedId()
+      else
+        local player = GetPlayerFromServerId(seat.id)
+        if player ~= -1 then ped = GetPlayerPed(player) end
+      end
+      hands[chair] = handOf(ped)
+    end
+  end
+  return hands
+end
+
 -- build and clear props by distance, and tell the page which games to follow
 CreateThread(function()
   while true do
@@ -290,7 +357,9 @@ CreateThread(function()
           local d = #(p - t.base)
           if d < Config.DrawDistance or me.id == t.def.id then
             sleep = 0
+            t.board:setHands(handsAt(t))
             t.board:draw(Render, now)
+            if me.id == t.def.id and camMode == 'first' then Tables.camera() end
             -- the names at each chair, for whoever stands around
             if d < 9.0 and me.id ~= t.def.id then
               local v = t.view

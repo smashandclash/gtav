@@ -61,6 +61,11 @@ end
 --- The table now (see nui/src/view.ts). Animations already running keep playing over it.
 function Board:setView(view)
   self.view = view
+  -- a card just played leaves the hand at once and waits over its tile until the move lands
+  local p = view and view.ui and view.ui.playing
+  if p and not (self.playing and self.playing.cell == p.cell) then
+    self.playing = { cell = p.cell, id = p.id, start = self.clock or 0 }
+  end
 end
 
 --- A move's animation steps, starting now (`now` in ms). Steps: { at, dur, kind, ... }.
@@ -213,6 +218,7 @@ end
 
 --- Draw the whole table. `now` is the game timer (ms).
 function Board:draw(R, now)
+  self.clock = now
   local v = self.view
   -- drop finished animations
   local live = {}
@@ -324,8 +330,22 @@ function Board:draw(R, now)
     if a and a.kind == 'drop' then
       if now >= a.start then
         local p = clamp((now - a.start) / a.dur, 0, 1)
-        local z = B0 + self.H * 0.9 * (1 - easeOut(p))
-        self:card(R, t.id, x, y, z, self:ownerYaw(t.owner) + spin, { rim = ownerColour(t.owner), frozen = t.frozen, scale = 1 + 0.18 * (1 - backOut(p)), lift = z - B0 })
+        local hx, hy, hz = nil, nil, nil
+        if a.fromHand then hx, hy, hz = self:handStart(t.owner) end
+        if a.fromHand and self.playing and self.playing.cell == t.cell then
+          hx, hy, hz = x, y, B0 + self.H * 0.55
+          if p >= 1 then self.playing = nil end
+        end
+        if hx then
+          -- played from the hand: an arc from the fan down onto its tile, turning flat as it lands
+          local e = easeInOut(p)
+          local cx, cy = hx + (x - hx) * e, hy + (y - hy) * e
+          local z = hz + (B0 - hz) * e + math.sin(e * PI) * self.H * 0.6
+          self:card(R, t.id, cx, cy, z, self:ownerYaw(t.owner) + spin, { rim = p > 0.8 and ownerColour(t.owner) or nil, frozen = t.frozen, scale = 0.62 + 0.38 * e, lift = math.max(0, z - B0) })
+        else
+          local z = B0 + self.H * 0.9 * (1 - easeOut(p))
+          self:card(R, t.id, x, y, z, self:ownerYaw(t.owner) + spin, { rim = ownerColour(t.owner), frozen = t.frozen, scale = 1 + 0.18 * (1 - backOut(p)), lift = z - B0 })
+        end
       end
     elseif a and a.kind == 'hop' then
       if now >= a.start then
@@ -360,7 +380,8 @@ function Board:draw(R, now)
     end
   end
 
-  self:drawHands(R, now, spin)
+  self:drawHands(R, now)
+  self:drawPlaying(R, now, spin)
 
   -- an effect card shown over the board
   for _, a in ipairs(self.anims) do
@@ -391,10 +412,81 @@ function Board:draw(R, now)
   end
 end
 
---- Both hands: the viewer's own cards face up, standing at their edge; every other hand is
---- its count of card backs.
+--- Where each chair's player holds their cards, in the world, from their body (client/tables.lua
+--- reads it from the ped's hands and head every frame): { A = { anchor = {x,y,z}, head = {x,y,z} } }.
+function Board:setHands(hands)
+  self.hands = hands
+end
+
+--- World to table coordinates (the inverse of Board:world).
+function Board:toLocal(x, y, z)
+  local o = self.origin
+  local dx, dy = x - o.x, y - o.y
+  return dx * self.ax[1] + dy * self.ax[2], dx * self.ay[1] + dy * self.ay[2], z - o.z
+end
+
+local function v3(a) return { a[1] or a.x, a[2] or a.y, a[3] or a.z } end
+local function add(a, b, k) return { a[1] + b[1] * k, a[2] + b[2] * k, a[3] + b[3] * k } end
+local function sub3(a, b) return { a[1] - b[1], a[2] - b[2], a[3] - b[3] } end
+local function norm3(a)
+  local l = math.sqrt(a[1] * a[1] + a[2] * a[2] + a[3] * a[3])
+  if l < 1e-6 then return { 0, 0, 1 } end
+  return { a[1] / l, a[2] / l, a[3] / l }
+end
+local function cross3(a, b) return { a[2] * b[3] - a[3] * b[2], a[3] * b[1] - a[1] * b[3], a[1] * b[2] - a[2] * b[1] } end
+
+-- the size of a card held in the hand: a real card, a little larger so it reads on screen
+local HAND_H = 0.12
+
+--- The fan a player holds: for card i of n, its centre, its up and right axes and its normal
+--- (towards the holder's eyes). `lift` raises a picked card out of the fan.
+function Board:fanSlot(hand, i, n, lift)
+  local anchor, head = v3(hand.anchor), v3(hand.head)
+  local f = norm3(sub3(head, anchor))
+  local r = norm3(cross3({ 0, 0, 1 }, f))
+  local u = cross3(f, r)
+  -- spread wide enough that each card's corner, with its values, shows past the next one
+  local spread = math.rad(math.min(17, 72 / math.max(1, n - 1)))
+  local a = (i - (n + 1) / 2) * spread
+  -- card 1 on the left, each next one turned a little further right (seen by the holder)
+  local up = add({ 0, 0, 0 }, u, math.cos(a))
+  up = add(up, r, math.sin(a))
+  local right = add({ 0, 0, 0 }, r, math.cos(a))
+  right = add(right, u, -math.sin(a))
+  local c = add(anchor, up, HAND_H * 0.5 + (lift or 0))
+  c = add(c, f, (i - 1) * 0.0025 + (lift and lift > 0 and 0.012 or 0))
+  return c, up, right, f
+end
+
+--- A card held in the hand, as a world-space quad; the face shows on the holder's side.
+function Board:heldCard(R, id, c, up, right, f, opts)
+  opts = opts or {}
+  local s = opts.scale or 1
+  local hw, hh = HAND_H * 0.7333 / 2 * s, HAND_H / 2 * s
+  local function p(kx, ky) return { c[1] + right[1] * hw * kx + up[1] * hh * ky, c[2] + right[2] * hw * kx + up[2] * hh * ky, c[3] + right[3] * hw * kx + up[3] * hh * ky } end
+  local corners = { p(-1, 1), p(1, 1), p(1, -1), p(-1, -1) }
+  local cx, cy, cz = R.camera()
+  local front = (cx - c[1]) * f[1] + (cy - c[2]) * f[2] + (cz - c[3]) * f[3] >= 0
+  local alpha = opts.alpha or 255
+  if opts.glow and front and not opts.back then
+    -- the picked card: a sun-yellow edge behind it
+    local g = { p(-1.12, 1.09), p(1.12, 1.09), p(1.12, -1.09), p(-1.12, -1.09) }
+    for _, q in ipairs(g) do q[1], q[2], q[3] = q[1] - f[1] * 0.001, q[2] - f[2] * 0.001, q[3] - f[3] * 0.001 end
+    sprite(R, g, R.glyph('tile'), SUN, alpha)
+  end
+  if opts.back or not front then
+    sprite(R, corners, R.card('back'), WHITE, alpha, not front)
+  else
+    sprite(R, corners, R.card(id), WHITE, alpha)
+  end
+  return corners
+end
+
+--- Both hands. A player in a chair holds theirs as a fan; the viewer sees their own faces, everyone
+--- else the backs. A seat with nobody in its chair (an opponent on another app) stands its backs
+--- at its edge of the table.
 function Board:handSlots(chair, n)
-  local ex, ey = self:extents()
+  local _, ey = self:extents()
   local out = {}
   local step = self.W * 0.95 + self.G
   for i = 1, n do
@@ -412,43 +504,123 @@ function Board:chairOf(seat)
   return seat
 end
 
-function Board:drawHands(R, now, spin)
+--- The deck stand's top, in the world: where a drawn card starts.
+function Board:deckPoint()
+  local ex = self:extents()
+  local dx, dy = self:boardXY(-(ex + self.W * 0.95), 0)
+  return { self:world(dx, dy, self.T * 0.5 + 0.03) }
+end
+
+function Board:drawHands(R, now)
   local v = self.view
   if not v or not v.hands then return end
   self.handCorners = {}
   local pitch = math.rad(62)
   for _, seat in ipairs({ 'A', 'B' }) do
     local mine = v.viewer == seat and v.myHand
-    -- your own cards stand at your edge in first person; the third-person views show them on screen
-    local skip = mine and not (v.ui and v.ui.hand3d)
-    local n = skip and 0 or (mine and #v.myHand or (v.hands[seat] or 0))
+    local count = mine and #v.myHand or (v.hands[seat] or 0)
     local chair = self:chairOf(seat)
-    local yaw = chair == 'A' and 0 or PI
-    for i, slot in ipairs(self:handSlots(chair, n)) do
-      if mine then
-        local id = v.myHand[i]
-        local ui = v.ui or {}
-        local sel = ui.selected == i - 1
-        local dead = ui.myTurn and ui.dead and ui.dead[i]
-        local hov = self.hover and self.hover.kind == 'hand' and self.hover.index == i - 1
-        local lift = (sel and self.H * 0.3 or 0) + (hov and self.H * 0.08 or 0)
-        local inward = sel and self.H * 0.15 or 0
-        local sy = chair == 'A' and inward or -inward
-        local fresh = find(self.anims, function(a) return a.kind == 'draw' and a.index == i - 1 and now < a.start + a.dur end)
-        local alpha = dead and 150 or 255
-        local dz = 0
+    local held = self.hands and self.hands[chair]
+    local ui = v.ui or {}
+    -- the card just played has left the hand; the rest close up
+    local shown = {}
+    for i = 1, count do
+      local id = mine and v.myHand[i] or 0
+      if not (mine and self.playing and self.playing.id == id) then shown[#shown + 1] = { i = i, id = id } end
+    end
+    local n = #shown
+    -- the card the player is looking at (scrolled to, hovered or picked) comes to the front, whole
+    local focus = nil
+    if mine then
+      if self.hover and self.hover.kind == 'hand' then focus = self.hover.index + 1
+      elseif ui.focus ~= nil then focus = ui.focus + 1
+      elseif ui.selected ~= nil then focus = ui.selected + 1 end
+    end
+    local front = nil
+    for k, card in ipairs(shown) do
+      local i, id = card.i, card.id
+      local sel = mine and ui.selected == i - 1
+      local dead = mine and ui.myTurn and ui.dead and ui.dead[i]
+      local fresh = find(self.anims, function(a) return a.kind == 'draw' and a.index == i - 1 and (a.seat == nil or a.seat == seat) and now < a.start + a.dur end)
+      if held then
+        local c, up, right, f = self:fanSlot(held, k, n, sel and HAND_H * 0.4 or 0)
+        local alpha = dead and 160 or 255
+        local scale = 1
         if fresh then
-          local p = clamp((now - fresh.start) / fresh.dur, 0, 1)
-          if now < fresh.start then alpha = 0 else dz = (1 - backOut(p)) * self.H * 0.6 end
+          -- a card drawn from the deck flies into its place in the fan
+          if now < fresh.start then alpha = 0
+          else
+            local p = easeOut(clamp((now - fresh.start) / fresh.dur, 0, 1))
+            local d = self:deckPoint()
+            c = { d[1] + (c[1] - d[1]) * p, d[2] + (c[2] - d[2]) * p, d[3] + (c[3] - d[3]) * p + math.sin(p * PI) * 0.18 }
+            scale = 0.7 + 0.3 * p
+          end
         end
         if alpha > 0 then
-          self.handCorners[i] = self:card(R, id, slot.x, slot.y + sy, 0.006 + lift + dz, yaw, { pitch = sel and math.rad(74) or pitch, alpha = alpha })
+          if mine and focus == i and not fresh then
+            front = { i = i, id = id, sel = sel, alpha = alpha }
+          elseif mine then
+            self.handCorners[i] = self:heldCard(R, id, c, up, right, f, { alpha = alpha, glow = sel, scale = scale })
+          else
+            self:heldCard(R, 0, c, up, right, f, { back = true, scale = scale })
+          end
         end
       else
-        self:card(R, 0, slot.x, slot.y, 0.006, yaw, { pitch = pitch, back = true })
+        -- nobody in that chair: the hand stands at its edge (the viewer's own only in first person)
+        if not mine or ui.hand3d then
+          local slot = self:handSlots(chair, n)[k]
+          local yaw = chair == 'A' and 0 or PI
+          local hov = mine and focus == i
+          local liftZ = (sel and self.H * 0.3 or 0) + (hov and self.H * 0.08 or 0)
+          local corners = self:card(R, mine and id or 0, slot.x, slot.y, 0.006 + liftZ, yaw, { pitch = sel and math.rad(74) or pitch, back = not mine, alpha = dead and 150 or 255 })
+          if mine then self.handCorners[i] = corners end
+        end
       end
     end
+    if front and held then
+      -- upright, raised and a little nearer the eyes, over the rest: all four values in view
+      local k = 1
+      for j, card in ipairs(shown) do if card.i == front.i then k = j end end
+      local c, _, _, f = self:fanSlot(held, k, n, HAND_H * (front.sel and 0.62 or 0.5))
+      local _, up, right = self:fanSlot(held, (n + 1) / 2, n, 0)
+      c = { c[1] + f[1] * 0.035, c[2] + f[2] * 0.035, c[3] + f[3] * 0.035 }
+      self.handCorners[front.i] = self:heldCard(R, front.id, c, up, right, f, { alpha = front.alpha, glow = front.sel, scale = 1.18 })
+    end
   end
+end
+
+--- The card a player just played, while the move is on its way: out of the fan, over its tile.
+function Board:drawPlaying(R, now, spin)
+  local pl = self.playing
+  local v = self.view
+  if not pl or not v then return end
+  if now - pl.start > 8000 then self.playing = nil return end
+  -- the move has landed when its tile holds a card and no drop is waiting to show it
+  local landing = find(self.anims, function(a) return a.kind == 'drop' and a.cell == pl.cell end)
+  if landing then return end
+  if not (v.ui and v.ui.playing) then
+    for _, t in ipairs(v.board or {}) do
+      if t.cell == pl.cell then self.playing = nil return end
+    end
+  end
+  local x, y = self:cellXY(pl.cell, spin)
+  local B0 = self.T + 0.008
+  local hoverZ = B0 + self.H * 0.55 + math.sin(now / 220) * self.H * 0.04
+  local hx, hy, hz = self:handStart(v.viewer or 'A')
+  local p = easeOut(clamp((now - pl.start) / 380, 0, 1))
+  local cx, cy, cz = x, y, hoverZ
+  if hx then cx, cy, cz = hx + (x - hx) * p, hy + (y - hy) * p, hz + (hoverZ - hz) * p + math.sin(p * PI) * self.H * 0.3 end
+  self:card(R, pl.id, cx, cy, cz, self:ownerYaw(v.viewer or 'A') + spin, { scale = 0.62 + 0.38 * p, lift = cz - B0 })
+end
+
+--- Where a card played from a seat's hand starts its flight: the middle of the fan, in table
+--- coordinates; nil when nobody holds that seat's cards.
+function Board:handStart(seat)
+  local held = self.hands and self.hands[self:chairOf(seat)]
+  if not held then return nil end
+  local a = v3(held.anchor)
+  local x, y, z = self:toLocal(a[1], a[2], a[3] + HAND_H * 0.45)
+  return x, y, z
 end
 
 -------------------------------------------------------------------------------------------

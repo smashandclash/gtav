@@ -29,6 +29,10 @@ export interface ViewUI {
   dead: boolean[];
   /** First person: your cards stand at your edge of the table instead of on screen. */
   hand3d?: boolean;
+  /** The card on its way while the move is sent: it leaves the hand at once and waits over its tile. */
+  playing?: { cell: string; id: number } | null;
+  /** The hand card scrolled to: it comes to the front of the fan, all four values in view. */
+  focus?: number | null;
 }
 
 export interface TableView {
@@ -62,6 +66,8 @@ export interface Step {
   art?: string;
   mirror?: boolean;
   index?: number;
+  /** A card played from the hand: it flies from the player's fan, not from above. */
+  fromHand?: boolean;
   /** The sound this step makes, played by the page as it starts. */
   sfx?: string;
 }
@@ -160,13 +166,16 @@ export function stepsFor(
       else if (a && b && a.owner !== b.owner) flips.push({ cell, from: a.owner });
     }
   }
+  // the cards that left a hand this move: placed, or played over a surrounded card
+  const played = new Set(events.filter((e) => e.type === 'cardPlaced' || e.type === 'cardOverrun').map((e) => cellOf(e.cell)).filter(Boolean) as string[]);
   const hop = events.find((e) => e.type === 'cardHopped');
   const hopTo = hop ? cellOf(hop.to) : null;
   for (const cell of drops) {
     if (hopTo && cell === hopTo) steps.push({ at: t, dur: 520, kind: 'hop', cell, from: cellOf(hop!.from) ?? cell, sfx: 'chessHop' });
+    else if (played.has(cell)) steps.push({ at: t, dur: 620, kind: 'drop', cell, fromHand: true, sfx: 'cardPlace' });
     else steps.push({ at: t, dur: 420, kind: 'drop', cell, sfx: 'cardPlace' });
   }
-  if (drops.length || steps.some((s) => s.kind === 'vanish')) t += hop ? 560 : 440;
+  if (drops.length || steps.some((s) => s.kind === 'vanish')) t += hop ? 560 : played.size ? 640 : 440;
 
   if (flips.length) {
     const placed = events.find((e) => e.type === 'cardPlaced' || e.type === 'cardOverrun' || e.type === 'cardRecruited' || e.type === 'cardHopped');

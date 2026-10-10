@@ -59,6 +59,8 @@ export class UI implements Animator {
 
   // match HUD
   private camMode = 'seat';
+  /** The hand card the player is looking at: it comes to the front of the fan, whole. */
+  private focus: number | null = null;
   private lastView = '';
   private handEl: HTMLElement | null = null;
   private handIds: number[] = [];
@@ -323,6 +325,14 @@ export class UI implements Animator {
     hud.addEventListener('click', (e) => {
       if (onTable(e)) void this.pointer(e, true);
     });
+    // the wheel scrolls through your hand: each card comes to the front of the fan in turn
+    hud.addEventListener('wheel', (e) => {
+      const n = this.handIds.length;
+      if (!n || Math.abs(e.deltaY) < 4) return;
+      e.preventDefault();
+      const from = this.focus ?? this.selected ?? (e.deltaY > 0 ? -1 : n);
+      this.focusOn((from + (e.deltaY > 0 ? 1 : -1) + n) % n);
+    }, { passive: false });
     return hud;
   }
 
@@ -440,6 +450,8 @@ export class UI implements Animator {
         selected: this.selected,
         dead: (view?.hand ?? []).map((c) => myTurn && !legal.some((n) => parseMove(n).key === handKey(c))),
         hand3d: this.camMode === 'first',
+        playing: ctl.pending ? { cell: ctl.pending.cell, id: ctl.pending.cardId } : null,
+        focus: this.focus,
       },
     });
     const text = JSON.stringify(v);
@@ -470,7 +482,7 @@ export class UI implements Animator {
           const info = this.ctl.cards.get(id);
           return h(
             'button',
-            { class: `hand-card${fresh && !before.has(id) ? ' drawn' : ''}`, 'data-key': `hand:${id}`, 'aria-label': info?.name ?? 'card', onclick: () => this.clickHand(i) },
+            { class: `hand-card${fresh && !before.has(id) ? ' drawn' : ''}`, 'data-key': `hand:${id}`, 'aria-label': info?.name ?? 'card', onclick: () => this.clickHand(i), onmouseenter: () => this.focusOn(i), onmouseleave: () => this.focusOn(null) },
             h('img', { src: art.card(id), alt: '' }),
             h('span', { class: 'key', text: String(i + 1) }),
           );
@@ -491,7 +503,9 @@ export class UI implements Animator {
   /** A button for each tile the picked card can go to, so keys and a controller can play too. */
   private paintTileButtons(myTurn: boolean): void {
     const row = this.refs.tileRow;
-    const cells = myTurn && this.selected != null ? [...this.targets()].sort() : myTurn && this.ctl.game?.view?.pendingHop ? [...this.targets()].sort() : [];
+    // only for keys and a controller: with a mouse, the tiles on the table are the buttons
+    const picking = myTurn && this.nav.active && (this.selected != null || !!this.ctl.game?.view?.pendingHop);
+    const cells = picking ? [...this.targets()].sort() : [];
     const key = `${cells.join(',')}|${this.path.join(',')}`;
     if (row.dataset.key === key) return;
     row.dataset.key = key;
@@ -531,6 +545,7 @@ export class UI implements Animator {
       this.selected = null;
     } else {
       this.selected = i;
+      this.focus = i;
       this.sound.sfx('cardPick');
     }
     this.path = [];
@@ -540,6 +555,14 @@ export class UI implements Animator {
       const first = this.refs.tileRow?.querySelector<HTMLElement>('button');
       if (first) this.nav.focus(first);
     }
+  }
+
+  /** Bring a hand card to the front of the fan (null: the fan as it is). */
+  private focusOn(i: number | null): void {
+    if (this.focus === i) return;
+    this.focus = i;
+    if (i != null) this.sound.sfx('hover');
+    this.render();
   }
 
   private clickTile(cell: string): void {
@@ -565,6 +588,7 @@ export class UI implements Animator {
 
   private play(name: string): void {
     this.selected = null;
+    this.focus = null;
     this.path = [];
     void this.ctl.play(name);
   }
