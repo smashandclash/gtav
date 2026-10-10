@@ -122,6 +122,8 @@ export class UI implements Animator {
       return this.render();
     }
     if (this.ctl.offer) return this.ctl.declineOffer();
+    // in a game, Esc is the pause menu (Back to the game / How to play / Settings / Resign)
+    if (this.ctl.screen === 'match' && this.ctl.game && !this.ctl.game.over) return this.openSheet('menu');
     this.putAway();
   }
 
@@ -157,15 +159,15 @@ export class UI implements Animator {
   private focusOn_: boolean | null = null;
 
   /**
-   * Who has the mouse: the panel's menus (lobby, waiting, a sheet, the result, an invite), or the
-   * game while a game is in play, so you look around with it and play where you look.
+   * The page has the mouse whenever it shows: you point and click at your cards and the board, as
+   * on smashandclash.in (holding the right mouse button turns your head instead).
    */
   private syncFocus(): void {
     const ctl = this.ctl;
     const playing = ctl.visible && ctl.screen === 'match' && !ctl.finish && !this.sheet && !ctl.offer;
     document.body.classList.toggle('playing', playing);
     if (!inGame || !ctl.visible) return;
-    const want = !playing;
+    const want = true;
     if (want === this.focusOn_) return;
     this.focusOn_ = want;
     void post('focus', { on: want });
@@ -380,7 +382,6 @@ export class UI implements Animator {
       this.refs.does,
       this.refs.result,
       this.refs.prompt,
-      h('div', { class: 'reticle', 'aria-hidden': 'true' }),
     );
     // the cursor on the table: hover lights what it is over, a click picks it
     let last = 0;
@@ -390,6 +391,8 @@ export class UI implements Animator {
       last = performance.now();
       void this.pointer(e, false);
     });
+    // the right mouse button belongs to the game (hold it to look around; a tap puts a card back)
+    hud.addEventListener('contextmenu', (e) => e.preventDefault());
     hud.addEventListener('click', (e) => {
       if (onTable(e)) void this.pointer(e, true);
     });
@@ -451,13 +454,15 @@ export class UI implements Animator {
       turn.replaceChildren('Game over');
     } else if (myTurn) {
       turn.className = 'turn mine';
-      turn.replaceChildren('Your turn', h('small', { text: hop ? 'Hop to a glowing tile, or stay' : this.selected == null ? 'Pick a card' : 'Now pick a glowing tile' }));
+      const noTile = this.selected != null && this.pickMoves().some((m) => m.cells.length === 0) && view?.hand[this.selected]?.kind === 'effect';
+      turn.replaceChildren('Your turn', h('small', { text: hop ? 'Hop to a glowing tile, or stay' : this.selected == null ? 'Pick a card' : noTile ? 'Click it again to play it' : 'Now pick a glowing tile' }));
     } else {
       turn.className = 'turn';
       const label = ctl.busy ?? (ctl.animating ? `${ctl.opponentName} played` : `${ctl.opponentName}'s turn`);
       turn.replaceChildren(h('span', { class: ctl.animating ? '' : 'dots', text: label }));
     }
     this.refs.resign.toggleAttribute('disabled', g.over || !!ctl.busy);
+    this.refs.resign.hidden = g.over;
 
     const picked = this.selected != null ? view?.hand[this.selected] : undefined;
     const does = this.refs.does;
@@ -493,14 +498,15 @@ export class UI implements Animator {
     if (!el) return;
     const k = (key: string, what: string) => h('span', { class: 'key-hint' }, h('kbd', { text: key }), what);
     let parts: HTMLElement[] = [];
+    const look = k('Hold right-click', 'Look around');
     if (!g || g.over) parts = [];
-    else if (!ctl.canPlay) parts = [k('V', 'View'), k('Esc', 'Menu')];
-    else if (view?.pendingHop) parts = [k('Look', 'at a glowing tile'), k('Click', 'Hop there'), k('Space', 'Stay'), k('V', 'View'), k('Esc', 'Menu')];
-    else if (this.selected == null) parts = [k('Scroll', 'Choose a card'), k('Click', 'Pick it up'), k('V', 'View'), k('Esc', 'Menu')];
+    else if (!ctl.canPlay) parts = [look, k('V', 'View'), k('Esc', 'Menu')];
+    else if (view?.pendingHop) parts = [k('Click', 'a glowing tile to hop'), k('Space', 'Stay'), look];
+    else if (this.selected == null) parts = [k('Click', 'a card in front of you'), k('Wheel', 'Next card'), look];
     else {
       const card = view?.hand[this.selected];
       const noTile = this.pickMoves().some((m) => m.cells.length === 0) && card?.kind === 'effect';
-      parts = noTile ? [k('Click', `Play ${card!.card.replace(/!$/, '')}`), k('Right-click', 'Put it back')] : [k('Look', 'at a glowing tile'), k('Click', 'Place it'), k('Right-click', 'Put it back')];
+      parts = noTile ? [k('Click', `${card!.card.replace(/!$/, '')} again to play it`), k('Right-click', 'Put it back')] : [k('Click', 'a glowing tile'), k('Right-click', 'Put it back'), look];
     }
     const key = parts.map((p) => p.textContent).join('|');
     if (el.dataset.key === key) return;
@@ -866,7 +872,6 @@ export class UI implements Animator {
     } else if (this.sheet === 'menu') {
       body = [
         h('h2', { text: 'Paused' }),
-        h('p', { text: 'Your game waits while this is open.' }),
         h('button', { class: 'candy sun', 'data-first': true, onclick: () => this.closeSheet() }, h('span', { text: 'Back to the game' })),
         h('button', { class: 'candy', onclick: () => this.openSheet('rules') }, h('span', { text: 'How to play' })),
         h('button', { class: 'candy', onclick: () => this.openSheet('settings') }, h('span', { text: 'Settings' })),

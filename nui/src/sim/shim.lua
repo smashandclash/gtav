@@ -194,20 +194,13 @@ function pick(x, y)
   return hit
 end
 
--- a seated player at chair A, as tables.lua reads one from a ped: eyes over the edge, the fan
--- held in both hands in front of the chest
+-- a seated player's eyes at chair A: over the edge, looking down at the board
 HEAD = { 0, -(ey + 0.55), 0.48 }
 HEAD_Y, HEAD_Z = HEAD[2], HEAD[3]
-local hands = {
-  A = { anchor = { 0, -(ey + 0.27), 0.15 }, head = { HEAD[1], HEAD[2], HEAD[3] + 0.04 } },
-  -- the character across the table, holding their cards the same way
-  B = { anchor = { 0, ey + 0.27, 0.15 }, head = { 0, ey + 0.55, 0.52 } },
-}
 
 function frame(now)
   buf, n = {}, 0
   TEXTS = {}
-  board:setHands(hands)
   board:draw(R, now)
   TEXT_LINES = table.concat(TEXTS, '\n')
   return buf

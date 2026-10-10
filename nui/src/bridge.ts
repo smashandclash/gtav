@@ -155,5 +155,8 @@ export const gameFetch: typeof fetch = async (input, init = {}) => {
   }
   // no answer at all: a dropped connection, as the SDK knows it
   if (!r || !r.status) throw new TypeError(r?.error ? `Failed to fetch (${r.error})` : 'Failed to fetch');
+  // the API always answers a call with JSON: an empty success is an answer lost on the way, which
+  // the SDK tries again (a GET), rather than a game with no state
+  if (r.status >= 200 && r.status < 300 && !r.body) throw new TypeError('Failed to fetch (empty answer)');
   return new Response(r.status === 204 || r.status === 304 ? null : r.body ?? '', { status: r.status, headers: r.headers ?? {} });
 };

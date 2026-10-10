@@ -19,13 +19,6 @@ Config.ChairTurn = 180.0
 Config.ChairGap = 0.42
 Config.SeatHeight = 0.5
 Config.SitScenario = 'PROP_HUMAN_SEAT_CHAIR_MP_PLAYER'
--- The pose that holds the cards in front of the chest, over the seated one: the first the game has.
-Config.HoldAnims = {
-  { 'amb@code_human_in_bus_passenger_idles@female@tablet@base', 'base' },
-  { 'amb@world_human_seat_wall_tablet@female@base', 'base' },
-  { 'cellphone@', 'cellphone_text_read_base' },
-}
-
 -- Who sits across when the other player is not at the table (the opponent at your level, or a
 -- player on another app). The first the game has, picked by the game, so everyone sees the same.
 Config.CharacterModels = {

@@ -69,10 +69,10 @@ export async function createSim(canvas: HTMLCanvasElement): Promise<Sim> {
     const ex = lua.global.get('EY') as number;
     if (mode === 'top') cam = { pos: [0, -0.12, h * 7.5], at: [0, -0.02, 0], fov: 50 };
     else if (mode === 'first') {
-      // the stand-in player's eyes (shim.lua HEAD), a little in front of the face, as tables.lua places it
+      // the stand-in player's eyes (shim.lua HEAD), looking where tables.lua aims you when you sit
       const hy = lua.global.get('HEAD_Y') as number;
       const hz = lua.global.get('HEAD_Z') as number;
-      cam = { pos: [0, hy + 0.13, hz + 0.03], at: [0, h * 0.05, 0], fov: 66 };
+      cam = { pos: [0, hy, hz], at: [0, -ex * 0.4, 0], fov: 58 };
     }
     else cam = { pos: [0, -(ex + h * 3.6), h * 4.6], at: [0, -h * 0.35, 0], fov: 50 };
   };

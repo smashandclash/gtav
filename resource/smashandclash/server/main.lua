@@ -115,6 +115,10 @@ local function sit(src, id, chair)
   return true
 end
 
+RegisterNetEvent('smashandclash:log', function(text)
+  if type(text) == 'string' then print(('[smashandclash] %s: %s'):format(playerName(source), text:sub(1, 300))) end
+end)
+
 RegisterNetEvent('smashandclash:hello', function()
   local src = source
   local list = {}
