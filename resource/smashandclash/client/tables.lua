@@ -204,11 +204,20 @@ function Tables.camera()
   if view == 'eyes' then eyesOn() end
 end
 
---- V: through your eyes, or GTA's camera behind you.
+--- V: through your eyes, then GTA's camera close behind you, then further back, then your eyes.
 function Tables.toggleView()
   if not Tables.seated() then return view end
-  view = view == 'eyes' and 'gta' or 'eyes'
-  if view == 'eyes' then eyesOn() else eyesOff(true) end
+  if view == 'eyes' then
+    view = 'near'
+    eyesOff(true)
+    SetFollowPedCamViewMode(1)
+  elseif view == 'near' then
+    view = 'far'
+    SetFollowPedCamViewMode(2)
+  else
+    view = 'eyes'
+    eyesOn()
+  end
   return view
 end
 Tables.lookAround = Tables.toggleView

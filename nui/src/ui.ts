@@ -159,15 +159,16 @@ export class UI implements Animator {
   private focusOn_: boolean | null = null;
 
   /**
-   * The page has the mouse whenever it shows: you point and click at your cards and the board, as
-   * on smashandclash.in (holding the right mouse button turns your head instead).
+   * Who has the mouse. While a game is on, the game: the mouse turns your head, as anywhere in
+   * GTA, and a click acts on what is in the middle of your view (the dot). Menus (the lobby, a
+   * sheet, the result, an invite) bring the cursor back.
    */
   private syncFocus(): void {
     const ctl = this.ctl;
     const playing = ctl.visible && ctl.screen === 'match' && !ctl.finish && !this.sheet && !ctl.offer;
     document.body.classList.toggle('playing', playing);
     if (!inGame || !ctl.visible) return;
-    const want = true;
+    const want = !playing;
     if (want === this.focusOn_) return;
     this.focusOn_ = want;
     void post('focus', { on: want });
@@ -382,6 +383,7 @@ export class UI implements Animator {
       this.refs.does,
       this.refs.result,
       this.refs.prompt,
+      h('div', { class: 'reticle', 'aria-hidden': 'true' }),
     );
     // the cursor on the table: hover lights what it is over, a click picks it
     let last = 0;
@@ -498,15 +500,14 @@ export class UI implements Animator {
     if (!el) return;
     const k = (key: string, what: string) => h('span', { class: 'key-hint' }, h('kbd', { text: key }), what);
     let parts: HTMLElement[] = [];
-    const look = k('Hold right-click', 'Look around');
     if (!g || g.over) parts = [];
-    else if (!ctl.canPlay) parts = [look, k('V', 'View'), k('Esc', 'Menu')];
-    else if (view?.pendingHop) parts = [k('Click', 'a glowing tile to hop'), k('Space', 'Stay'), look];
-    else if (this.selected == null) parts = [k('Click', 'a card in front of you'), k('Wheel', 'Next card'), look];
+    else if (!ctl.canPlay) parts = [k('V', 'Change view'), k('Esc', 'Menu')];
+    else if (view?.pendingHop) parts = [k('Click', 'a glowing tile to hop'), k('Space', 'Stay'), k('V', 'View')];
+    else if (this.selected == null) parts = [k('Look', 'at a card'), k('Click', 'Pick it up'), k('Wheel', 'Next card'), k('V', 'View'), k('Esc', 'Menu')];
     else {
       const card = view?.hand[this.selected];
       const noTile = this.pickMoves().some((m) => m.cells.length === 0) && card?.kind === 'effect';
-      parts = noTile ? [k('Click', `${card!.card.replace(/!$/, '')} again to play it`), k('Right-click', 'Put it back')] : [k('Click', 'a glowing tile'), k('Right-click', 'Put it back'), look];
+      parts = noTile ? [k('Click', `Play ${card!.card.replace(/!$/, '')}`), k('Right-click', 'Put it back')] : [k('Look', 'at a glowing tile'), k('Click', 'Place it'), k('Right-click', 'Put it back')];
     }
     const key = parts.map((p) => p.textContent).join('|');
     if (el.dataset.key === key) return;

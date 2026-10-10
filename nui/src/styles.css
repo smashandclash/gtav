@@ -1021,6 +1021,29 @@ body.standalone {
 
 /* ------------------------------ the hint bar ------------------------------ */
 
+/* while a game is on the game has the mouse: the HUD only shows, and the dot marks what a click
+   acts on (the middle of your view) */
+body.playing .hud {
+  pointer-events: none;
+}
+.reticle {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: calc(var(--u) * 0.6);
+  height: calc(var(--u) * 0.6);
+  margin: calc(var(--u) * -0.3) 0 0 calc(var(--u) * -0.3);
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 0 0 calc(var(--u) * 0.16) rgb(13 26 74 / 0.75);
+  opacity: 0;
+  transition: opacity 160ms var(--out);
+  pointer-events: none;
+}
+body.playing .reticle {
+  opacity: 0.9;
+}
+
 /* what you can do now, along the bottom */
 .prompt {
   position: absolute;
