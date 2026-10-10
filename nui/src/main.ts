@@ -18,6 +18,13 @@ async function start(): Promise<void> {
   // the dev page's test handle (never in the build)
   if (import.meta.env.DEV) (window as unknown as { __snc: unknown }).__snc = { ui, ctl };
 
+  // while you type in the panel, the game hears none of the keys
+  const typingIn = (el: EventTarget | null) => el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement;
+  if (inGame) {
+    document.addEventListener('focusin', (e) => typingIn(e.target) && void post('typing', { on: true }));
+    document.addEventListener('focusout', (e) => typingIn(e.target) && void post('typing', { on: false }));
+  }
+
   onGameMessage((m) => {
     switch (m.type) {
       case 'open':
@@ -38,6 +45,10 @@ async function start(): Promise<void> {
         break;
       case 'nearby':
         spectator.update(m.tables.map((t) => ({ id: t.id, game: t.game || null, flip: !!t.flip })));
+        break;
+      case 'input':
+        // playing by looking: what the player did, from the game
+        ui.fromGame(m.action, m.arg);
         break;
       case 'pad':
         if (ctl.visible) ui.nav.pad(m.button);

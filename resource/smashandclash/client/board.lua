@@ -366,6 +366,11 @@ function Board:draw(R, now)
         sprite(R, self:quad(x, y, T + 0.0026, tw * 1.08, th * 1.06, yaw), R.glyph('rim'), col, a)
         sprite(R, self:quad(x, y, T + 0.0024, tw * 1.25, th * 1.2, yaw), R.glyph('glow'), col, math.floor(a * 0.45))
       end
+      -- the tile you look at with a card picked: the card waits over it, see-through, before you place it
+      if targets[cell] and ui and ui.selected ~= nil and v.myHand and self.hover and self.hover.kind == 'tile' and self.hover.cell == cell then
+        local id = v.myHand[ui.selected + 1]
+        if id then self:card(R, id, x, y, T + 0.03 + math.sin(now / 200) * 0.004, self:ownerYaw(v.viewer or 'A') + spin, { alpha = 160 }) end
+      end
     end
   end
 
@@ -578,31 +583,36 @@ local function norm3(a)
 end
 local function cross3(a, b) return { a[2] * b[3] - a[3] * b[2], a[3] * b[1] - a[1] * b[3], a[1] * b[2] - a[2] * b[1] } end
 
--- a card held in the hand: a real card, a little larger so it reads on screen
-local HAND_H = 0.1
+-- a card held in the hand: a real card, sized so its four values read from the chair
+local HAND_H = 0.085
 local HAND_W = HAND_H * 0.7333
+-- the space between two held cards: no card covers another, so every card shows all four values
+local HAND_GAP = 0.011
 
---- The fan a player holds, as a real hand of cards: each card turned about a point below the
---- hand, far enough apart that every card's left half, with its values, shows past the next.
---- `s` is the card's eased state: lift (out of the fan), pull (towards the eyes), scale, tilt
---- (0 = in the fan, 1 = upright).
+--- Where card i of n sits in a held hand: side by side on a gentle arc round the eyes, each card
+--- turned to face them and leaning out a little like a spread hand, but never over its
+--- neighbour (the values sit at the middle of each edge). `s` is the card's eased state: lift
+--- (up out of the row), pull (towards the eyes).
 function Board:fanSlot(hand, i, n, s)
   s = s or {}
   local anchor, head = v3(hand.anchor), v3(hand.head)
-  local f = norm3(sub3(head, anchor))
+  local f0 = norm3(sub3(head, anchor))
+  local r0 = norm3(cross3({ 0, 0, 1 }, f0))
+  local u0 = cross3(f0, r0)
+  local k = i - (n + 1) / 2
+  local x = k * (HAND_W + HAND_GAP)
+  -- the row bends round the eyes, its ends a little nearer, and sits a little higher in the middle
+  local c = add(anchor, r0, x)
+  c = add(c, f0, x * x * 1.1)
+  c = add(c, u0, HAND_H * 0.5 - math.abs(k) * HAND_H * 0.04 + (s.lift or 0))
+  -- each card faces the eyes
+  local f = norm3(sub3(head, c))
   local r = norm3(cross3({ 0, 0, 1 }, f))
   local u = cross3(f, r)
-  local radius = HAND_H * 1.15
-  local spread = math.rad(math.min(14, 64 / math.max(1, n - 1)))
-  local a = (i - (n + 1) / 2) * spread * (1 - (s.tilt or 0))
-  -- card 1 on the left, each next one turned a little further right (seen by the holder)
+  local a = k * math.rad(3.5)
   local up = add(add({ 0, 0, 0 }, u, math.cos(a)), r, math.sin(a))
   local right = add(add({ 0, 0, 0 }, r, math.cos(a)), u, -math.sin(a))
-  local pivot = add(anchor, u, -radius * 0.55)
-  local c = add(pivot, up, radius * 0.55 + HAND_H * 0.5 + (s.lift or 0))
-  -- the upright card keeps its place across the fan
-  if (s.tilt or 0) > 0 then c = add(c, r, (i - (n + 1) / 2) * HAND_W * 0.62 * s.tilt) end
-  c = add(c, f, (i - 1) * 0.0022 + (s.pull or 0))
+  c = add(c, f, s.pull or 0)
   return c, up, right, f
 end
 
@@ -707,12 +717,12 @@ function Board:drawHands(R, now, dt)
         -- every card eases to where it should be: scrolling, picking and playing glide
         local key = seat .. ':' .. (mine and tostring(id) or tostring(i))
         seen[key] = true
-        local st = self.fan[key] or { lift = 0, pull = 0, scale = 1, tilt = 0, glow = 0 }
+        local st = self.fan[key] or { lift = 0, pull = 0, scale = 1, glow = 0 }
         local isFocus = mine and focus == i
-        st.lift = toward(st.lift, isFocus and HAND_H * (sel and 0.62 or 0.5) or (sel and HAND_H * 0.3 or 0), dt)
-        st.pull = toward(st.pull, isFocus and 0.02 or 0, dt)
-        st.tilt = toward(st.tilt, isFocus and 1 or 0, dt)
-        st.scale = toward(st.scale, isFocus and 1.08 or 1, dt)
+        -- the card you are on rises out of the row and comes a little nearer; a picked card stays up
+        st.lift = toward(st.lift, isFocus and HAND_H * (sel and 0.42 or 0.3) or (sel and HAND_H * 0.2 or 0), dt)
+        st.pull = toward(st.pull, isFocus and 0.025 or 0, dt)
+        st.scale = toward(st.scale, isFocus and 1.1 or 1, dt)
         st.glow = toward(st.glow, sel and 1 or 0, dt, 18)
         self.fan[key] = st
         local c, up, right, f = self:fanSlot(held, k, n, st)
@@ -737,7 +747,7 @@ function Board:drawHands(R, now, dt)
             end
           end
           -- the card in front is drawn last, over its neighbours
-          if st.tilt > 0.5 then later = draw else draw() end
+          if isFocus then later = draw else draw() end
         end
       else
         -- nobody in that chair (an opponent on another app): the hand stands at its edge

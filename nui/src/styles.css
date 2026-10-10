@@ -1018,3 +1018,70 @@ body.standalone {
   animation-delay: 0ms !important;
   transition-duration: 1ms !important;
 }
+
+/* ------------------------------ playing by looking ------------------------------ */
+
+/* while a game is in play the game has the mouse: the HUD only shows, it takes no clicks */
+body.playing .hud {
+  pointer-events: none;
+}
+
+/* the middle of your view: what a click acts on */
+.reticle {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: calc(var(--u) * 0.7);
+  height: calc(var(--u) * 0.7);
+  margin: calc(var(--u) * -0.35) 0 0 calc(var(--u) * -0.35);
+  border-radius: 50%;
+  background: #fff;
+  box-shadow:
+    0 0 0 calc(var(--u) * 0.18) rgb(13 26 74 / 0.75),
+    0 0 calc(var(--u) * 0.8) rgb(0 0 0 / 0.35);
+  opacity: 0;
+  transition: opacity 160ms var(--out);
+  pointer-events: none;
+}
+body.playing .reticle {
+  opacity: 0.9;
+}
+
+/* what you can do now, along the bottom */
+.prompt {
+  position: absolute;
+  left: 50%;
+  bottom: calc(var(--u) * 1.8);
+  display: flex;
+  gap: calc(var(--u) * 1.4);
+  padding: calc(var(--u) * 0.7) calc(var(--u) * 1.4);
+  border-radius: calc(var(--u) * 1.4);
+  background: var(--sc-color-glass);
+  color: #fff;
+  font-weight: 700;
+  font-size: calc(var(--u) * 1.1);
+  transform: translateX(-50%);
+  white-space: nowrap;
+  pointer-events: none;
+}
+.prompt:empty {
+  display: none;
+}
+.key-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--u) * 0.5);
+}
+.key-hint kbd {
+  display: inline-grid;
+  place-items: center;
+  min-width: calc(var(--u) * 2.2);
+  height: calc(var(--u) * 2.2);
+  padding: 0 calc(var(--u) * 0.6);
+  border-radius: calc(var(--u) * 0.6);
+  background: linear-gradient(180deg, #fff, var(--sc-color-sugar-2));
+  box-shadow: 0 calc(var(--u) * 0.2) 0 var(--sc-color-sugar-edge);
+  color: var(--ink);
+  font-family: var(--label);
+  font-size: calc(var(--u) * 1);
+}

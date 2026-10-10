@@ -4,7 +4,7 @@
 
 import type { HandCard, Seat, SeatMove, SeatState } from '@smashandclash/sdk';
 import { Sound } from './audio';
-import { openInBrowser, post } from './bridge';
+import { inGame, openInBrowser, post } from './bridge';
 import { Controller, type Animator } from './controller';
 import { completed, handKey, movesFor, nextTargets, parseMove, type ParsedMove } from './moves';
 import { art } from './art';
@@ -12,7 +12,7 @@ import { Nav } from './nav';
 import { stepsFor, tableView, type Step } from './view';
 
 
-type Sheet = null | 'friend' | 'rules' | 'settings' | 'resign';
+type Sheet = null | 'friend' | 'rules' | 'settings' | 'resign' | 'menu';
 
 /* ------------------------------- tiny DOM -------------------------------- */
 
@@ -151,6 +151,71 @@ export class UI implements Animator {
     this.updateBanner();
     this.renderSheet();
     this.nav.settle();
+    this.syncFocus();
+  }
+
+  private focusOn_: boolean | null = null;
+
+  /**
+   * Who has the mouse: the panel's menus (lobby, waiting, a sheet, the result, an invite), or the
+   * game while a game is in play, so you look around with it and play where you look.
+   */
+  private syncFocus(): void {
+    const ctl = this.ctl;
+    const playing = ctl.visible && ctl.screen === 'match' && !ctl.finish && !this.sheet && !ctl.offer;
+    document.body.classList.toggle('playing', playing);
+    if (!inGame || !ctl.visible) return;
+    const want = !playing;
+    if (want === this.focusOn_) return;
+    this.focusOn_ = want;
+    void post('focus', { on: want });
+  }
+
+  /**
+   * What the player did in the game while playing (the page has no mouse then): scroll through the
+   * hand, click (a tile looked at, or the card picked), cancel, stay, open the menu.
+   */
+  fromGame(action: string, arg?: string | number): void {
+    const ctl = this.ctl;
+    const view = ctl.game?.view;
+    const n = this.handIds.length;
+    if (action === 'menu') return this.openSheet('menu');
+    if (!ctl.canPlay || !view) return;
+    if (action === 'scroll' && n) {
+      if (view.pendingHop) return;
+      const from = this.focus ?? this.selected ?? (Number(arg) > 0 ? -1 : n);
+      const i = (from + (Number(arg) > 0 ? 1 : -1) + n) % n;
+      // a card already picked moves with the scroll: the next card is picked instead
+      if (this.selected != null && this.selected !== i) {
+        this.selected = null;
+        this.path = [];
+      }
+      return this.focusOn(i);
+    }
+    if (action === 'key') {
+      this.handKey(String(arg));
+      return;
+    }
+    if (action === 'tile' && typeof arg === 'string') {
+      if (this.targets().has(arg)) return this.clickTile(arg);
+      // looking at a tile the card cannot go to: pick up the card in focus instead
+    }
+    if (action === 'hand' && typeof arg === 'number') return this.clickHand(arg);
+    if (action === 'tile' || action === 'select') {
+      if (this.selected == null && this.focus != null) return this.clickHand(this.focus);
+      if (this.selected == null && n) return this.focusOn(0);
+      // a picked card that needs no tile (Flip!, Swap!) plays on a second click
+      const now = this.pickMoves().find((m) => m.cells.length === 0);
+      if (now && this.selected != null) return this.play(now.name);
+      return;
+    }
+    if (action === 'cancel') {
+      if (this.path.length) this.path = [];
+      else this.selected = null;
+      this.sound.sfx('click');
+      return this.render();
+    }
+    if (action === 'stay') return this.playHopStay();
   }
 
   private music(): void {
@@ -300,6 +365,7 @@ export class UI implements Animator {
     this.refs.stay = h('button', { class: 'candy mint', hidden: true, onclick: () => this.playHopStay() }, h('span', { text: 'Stay here' }));
     this.refs.resign = h('button', { class: 'candy small cherry', onclick: () => this.openSheet('resign') }, h('span', { text: 'Resign' }));
     this.refs.does = h('div', { class: 'does', hidden: true });
+    this.refs.prompt = h('div', { class: 'prompt', role: 'status', 'aria-live': 'polite' });
     this.refs.result = h('div', { class: 'result', hidden: true });
     const hud = h(
       'div',
@@ -313,6 +379,8 @@ export class UI implements Animator {
       h('div', { class: 'hud-bottom' }, you, h('div', { class: 'hand-wrap' }, this.refs.tileRow, this.handEl), h('div', { class: 'actions-col' }, this.refs.stay, this.refs.resign)),
       this.refs.does,
       this.refs.result,
+      this.refs.prompt,
+      h('div', { class: 'reticle', 'aria-hidden': 'true' }),
     );
     // the cursor on the table: hover lights what it is over, a click picks it
     let last = 0;
@@ -411,8 +479,33 @@ export class UI implements Animator {
       does.dataset.key = '';
     }
 
+    this.updatePrompt();
     this.postView();
     this.updateResult();
+  }
+
+  /** The hint along the bottom: what you can do right now, with what. */
+  private updatePrompt(): void {
+    const ctl = this.ctl;
+    const g = ctl.game;
+    const view = g?.view;
+    const el = this.refs.prompt;
+    if (!el) return;
+    const k = (key: string, what: string) => h('span', { class: 'key-hint' }, h('kbd', { text: key }), what);
+    let parts: HTMLElement[] = [];
+    if (!g || g.over) parts = [];
+    else if (!ctl.canPlay) parts = [k('V', 'View'), k('Esc', 'Menu')];
+    else if (view?.pendingHop) parts = [k('Look', 'at a glowing tile'), k('Click', 'Hop there'), k('Space', 'Stay'), k('V', 'View'), k('Esc', 'Menu')];
+    else if (this.selected == null) parts = [k('Scroll', 'Choose a card'), k('Click', 'Pick it up'), k('V', 'View'), k('Esc', 'Menu')];
+    else {
+      const card = view?.hand[this.selected];
+      const noTile = this.pickMoves().some((m) => m.cells.length === 0) && card?.kind === 'effect';
+      parts = noTile ? [k('Click', `Play ${card!.card.replace(/!$/, '')}`), k('Right-click', 'Put it back')] : [k('Look', 'at a glowing tile'), k('Click', 'Place it'), k('Right-click', 'Put it back')];
+    }
+    const key = parts.map((p) => p.textContent).join('|');
+    if (el.dataset.key === key) return;
+    el.dataset.key = key;
+    el.replaceChildren(...parts);
   }
 
   /** The table as this player sees it, for the board in the world. Sent only when it changes. */
@@ -770,6 +863,15 @@ export class UI implements Animator {
       ];
     } else if (this.sheet === 'rules') {
       body = [h('h2', { text: 'How to play' }), h('div', { class: 'scroll rules' }, ...rulesBody(ctl.rulesText)), h('div', { class: 'actions' }, done)];
+    } else if (this.sheet === 'menu') {
+      body = [
+        h('h2', { text: 'Paused' }),
+        h('p', { text: 'Your game waits while this is open.' }),
+        h('button', { class: 'candy sun', 'data-first': true, onclick: () => this.closeSheet() }, h('span', { text: 'Back to the game' })),
+        h('button', { class: 'candy', onclick: () => this.openSheet('rules') }, h('span', { text: 'How to play' })),
+        h('button', { class: 'candy', onclick: () => this.openSheet('settings') }, h('span', { text: 'Settings' })),
+        h('button', { class: 'candy cherry', disabled: !!ctl.game?.over, onclick: () => this.openSheet('resign') }, h('span', { text: 'Resign' })),
+      ];
     } else if (this.sheet === 'settings') {
       const p = ctl.profile;
       const slider = (label: string, value: number, set: (v: number) => void) =>

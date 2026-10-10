@@ -7,20 +7,32 @@ Nui = {}
 local RES = GetCurrentResourceName()
 local KVP = 'smashandclash:profile'
 local focused = false
+-- the panel is up (the lobby, or the game's HUD); while a game is in play the page gives the mouse
+-- back to the game (focus off) and the game sends it what the player does
+local panelOpen = false
 
 local function send(msg)
   SendNUIMessage(msg)
 end
 
+-- The page's menus have the mouse, but the game keeps its input: hold the right mouse button to
+-- look around (and V changes your view) with a menu open. While you type, the game hears nothing.
+local typing = false
+local function setFocus(on)
+  focused = on
+  SetNuiFocus(on, on)
+  SetNuiFocusKeepInput(on)
+end
+
 function Nui.open(ctx)
-  focused = true
-  SetNuiFocus(true, true)
+  panelOpen = true
+  setFocus(true)
   send({ type = 'open', table = ctx })
 end
 
 function Nui.close()
-  focused = false
-  SetNuiFocus(false, false)
+  panelOpen = false
+  setFocus(false)
   send({ type = 'hide' })
 end
 
@@ -107,8 +119,17 @@ end)
 
 cb('close', function()
   -- the panel goes away, the player stays seated; F7 (or /smash) brings it back
-  focused = false
-  SetNuiFocus(false, false)
+  panelOpen = false
+  setFocus(false)
+end)
+
+-- the page asks for the mouse for its menus, and gives it back while a game is in play
+cb('focus', function(d)
+  setFocus(d.on and true or false)
+end)
+
+cb('typing', function(d)
+  typing = d.on and true or false
 end)
 
 cb('leaveTable', function()
@@ -152,11 +173,44 @@ RegisterNetEvent('smashandclash:notify', function(text) notify(text) end)
 -------------------------------------------------------------------------------------------
 -- playing
 
+-------------------------------------------------------------------------------------------
+-- playing by looking: while a game is in play the mouse turns your head; what is in the middle
+-- of the screen is what you point at
+
+local PLAY_KEYS = {
+  { 14, 'scroll', 1 }, { 15, 'scroll', -1 }, { 24, 'select' }, { 25, 'cancel' }, { 22, 'stay' },
+  { 200, 'menu' }, { 199, 'menu' }, { 177, 'menu' },
+  { 157, 'key', '1' }, { 158, 'key', '2' }, { 160, 'key', '3' }, { 164, 'key', '4' }, { 165, 'key', '5' },
+}
+local BLOCK = { 14, 15, 16, 17, 22, 24, 25, 37, 140, 141, 142, 143, 157, 158, 160, 164, 165, 177, 199, 200, 257, 263, 264 }
+
+CreateThread(function()
+  while true do
+    if Tables.seated() and panelOpen and not focused then
+      for _, c in ipairs(BLOCK) do DisableControlAction(0, c, true) end
+      local hit = Tables.gaze()
+      for _, k in ipairs(PLAY_KEYS) do
+        if IsDisabledControlJustPressed(0, k[1]) then
+          local action, arg = k[2], k[3]
+          -- a click acts on what you look at: a tile, or a card in your hand
+          if action == 'select' and hit then
+            if hit.kind == 'tile' then action, arg = 'tile', hit.cell else action, arg = 'hand', hit.index end
+          end
+          send({ type = 'input', action = action, arg = arg })
+        end
+      end
+      Wait(0)
+    else
+      Wait(200)
+    end
+  end
+end)
+
 -- /smash (F7): back to your table's panel, or a table of your own right here.
 RegisterCommand(Config.Command, function()
   if Tables.seated() then
-    focused = true
-    SetNuiFocus(true, true)
+    panelOpen = true
+    setFocus(true)
     send({ type = 'open', table = Tables.context() })
     return
   end
@@ -168,6 +222,12 @@ RegisterCommand(Config.Command, function()
   TriggerServerEvent('smashandclash:ownTable', p.x, p.y, ok and gz or p.z - 1.0, GetEntityHeading(ped))
 end, false)
 RegisterKeyMapping(Config.Command, 'Play Smash&Clash', 'keyboard', Config.Key)
+
+-- /smashlook: GTA's own camera for a moment while seated (to see yourself at the table), and back
+RegisterCommand('smashlook', function()
+  if not Tables.seated() then return end
+  Tables.lookAround()
+end, false)
 
 -- a controller drives the panel with the D-pad, A and B, and LB / RB through the hand
 local PAD = { { 172, 'up' }, { 173, 'down' }, { 174, 'left' }, { 175, 'right' }, { 201, 'accept' }, { 202, 'back' }, { 205, 'lb' }, { 206, 'rb' } }
@@ -194,6 +254,23 @@ CreateThread(function()
       DisableControlAction(0, 24, true) -- attack
       DisableControlAction(0, 25, true)
       DisableControlAction(0, 37, true) -- weapon wheel
+      DisableControlAction(0, 44, true) -- cover
+      DisableControlAction(0, 140, true) -- melee
+      DisableControlAction(0, 141, true)
+      DisableControlAction(0, 142, true)
+      if focused then
+        if typing then
+          DisableAllControlActions(0)
+        else
+          -- a menu is open: the keys belong to it (Esc closes it, not GTA's pause menu), and the
+          -- view turns only while the right mouse button is held
+          for _, c in ipairs({ 199, 200, 245, 246, 249, 288, 289, 170, 166, 167, 168, 22, 23, 75 }) do DisableControlAction(0, c, true) end
+          if not IsDisabledControlPressed(0, 25) then
+            DisableControlAction(0, 1, true)
+            DisableControlAction(0, 2, true)
+          end
+        end
+      end
       Wait(0)
     else
       Wait(400)
@@ -208,6 +285,6 @@ end)
 
 AddEventHandler('onResourceStop', function(res)
   if res ~= RES then return end
-  if focused then SetNuiFocus(false, false) end
+  if focused then SetNuiFocus(false, false) SetNuiFocusKeepInput(false) end
   Render.stop()
 end)

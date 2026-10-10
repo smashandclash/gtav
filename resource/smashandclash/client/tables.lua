@@ -5,7 +5,6 @@ Tables = {}
 
 local list = {}        -- id -> { def, props, board, blip }
 local me = { id = nil, chair = nil }
-local cam = nil
 -- the table is played through your own eyes: the only view
 local camMode = 'first'
 local myServerId = GetPlayerServerId(PlayerId())
@@ -150,18 +149,6 @@ function Tables.mine()
   return me.id and list[me.id]
 end
 
-local function camLookAt(pos, at, ease)
-  local fresh = not cam
-  if not cam then cam = CreateCam('DEFAULT_SCRIPTED_CAMERA', true) end
-  SetCamCoord(cam, pos.x, pos.y, pos.z)
-  PointCamAtCoord(cam, at.x, at.y, at.z)
-  SetCamFov(cam, camMode == 'first' and 66.0 or 50.0)
-  -- through your own eyes the cards are a hand's length away: let the camera see that close
-  SetCamNearClip(cam, camMode == 'first' and 0.03 or 0.1)
-  SetCamActive(cam, true)
-  if fresh or ease then RenderScriptCams(true, true, 600, true, true) end
-end
-
 -- Where a seated player's eyes are and which way they face.
 local function eyes(ped)
   local head = GetPedBoneCoords(ped, 31086, 0.0, 0.0, 0.0)
@@ -169,30 +156,35 @@ local function eyes(ped)
   return head, fwd
 end
 
---- Point the camera for the chosen view: over your shoulder, from above, or your own eyes.
-function Tables.camera(mode)
-  local changed = mode ~= nil and mode ~= camMode
-  if mode then camMode = mode end
-  mode = changed and mode or nil
+-- The table is played through your own eyes, with GTA's own first-person camera: it keeps your
+-- head out of the view and shows your arms and hands, holding your cards. While you play it
+-- looks down at the board; /smashlook lets GTA's usual camera show you at the table.
+local looking = false
+local viewBefore = nil
+
+function Tables.lookAround()
+  looking = not looking
+  if looking then SetFollowPedCamViewMode(1) else SetFollowPedCamViewMode(4) end
+  return looking
+end
+
+function Tables.camera()
+  if looking then return end
+  if not viewBefore then viewBefore = GetFollowPedCamViewMode() end
+  if GetFollowPedCamViewMode() ~= 4 then SetFollowPedCamViewMode(4) end
+end
+
+--- When you sit: look down at the middle of the board (after that the camera is yours).
+function Tables.aimAtBoard()
   local t = Tables.mine()
   if not t or not t.board then return end
-  local b = t.board
-  -- offsets are written from chair A: negative y is towards your own chair
-  local side = me.chair == 'A' and 1 or -1
-  local _, ey = b:extents()
-  local function at(x, y, z) local wx, wy, wz = b:world(x * side, y * side, z) return vector3(wx, wy, wz) end
-  if camMode == 'top' then
-    camLookAt(at(0, -0.12, b.H * 7.5), at(0, -0.02, 0))
-  elseif camMode == 'first' then
-    -- your own eyes: just in front of the face, looking down past your cards at the board
-    local head, fwd = eyes(PlayerPedId())
-    -- far enough in front of the face that hair and nose never hang in the view
-    local eye = vector3(head.x + fwd.x * 0.2, head.y + fwd.y * 0.2, head.z + 0.04)
-    local target = at(0, b.H * 0.05, 0)
-    camLookAt(eye, target, mode ~= nil)
-  else
-    camLookAt(at(0, -(ey + b.H * 3.6), b.H * 4.6), at(0, -b.H * 0.35, 0))
-  end
+  local ped = PlayerPedId()
+  local head = GetPedBoneCoords(ped, 31086, 0.0, 0.0, 0.0)
+  local cx, cy, cz = t.board:world(0, (me.chair == 'A' and -1 or 1) * t.board.H * 0.15, 0)
+  local dx, dy, dz = cx - head.x, cy - head.y, cz - head.z
+  local pitch = math.deg(math.atan(dz, math.sqrt(dx * dx + dy * dy)))
+  SetGameplayCamRelativeHeading(0.0)
+  SetGameplayCamRelativePitch(pitch, 1.0)
 end
 
 function Tables.cameraMode()
@@ -205,28 +197,47 @@ function Tables.cycleCamera()
 end
 
 local function cameraOff()
-  if cam then
-    RenderScriptCams(false, true, 600, true, true)
-    DestroyCam(cam, false)
-    cam = nil
+  looking = false
+  if viewBefore then
+    SetFollowPedCamViewMode(viewBefore)
+    viewBefore = nil
   end
 end
 
 --- The server sat us down.
-function Tables.onSeated(id, chair)
-  local t = list[id]
-  me.id, me.chair = id, chair
-  if not t then return end
-  CreateThread(function()
-    local wait = GetGameTimer()
-    while not t.board and GetGameTimer() - wait < 5000 do Wait(50) end
-    local ped = PlayerPedId()
-    local pos, facing = chairSpot(t, chair)
+--- Sit a body in a chair: GTA's own sitting, warped into place, tried again if it does not take.
+function Tables.sit(ped, t, chair)
+  local pos, facing = chairSpot(t, chair)
+  for _ = 1, 3 do
     ClearPedTasksImmediately(ped)
+    SetEntityCoordsNoOffset(ped, pos.x, pos.y, pos.z + 1.0, false, false, false)
+    SetEntityHeading(ped, facing)
     TaskStartScenarioAtPosition(ped, Config.SitScenario, pos.x, pos.y, pos.z + Config.SeatHeight, facing, 0, true, true)
-    Wait(1200)
+    local t0 = GetGameTimer()
+    while not IsPedUsingScenario(ped, Config.SitScenario) and GetGameTimer() - t0 < 1500 do Wait(50) end
+    if IsPedUsingScenario(ped, Config.SitScenario) then return true end
+  end
+  return false
+end
+
+function Tables.onSeated(id, chair)
+  me.id, me.chair = id, chair
+  CreateThread(function()
+    -- the seat can come before the table itself: wait for both
+    local wait = GetGameTimer()
+    while (not list[id] or not list[id].board) and GetGameTimer() - wait < 6000 do Wait(50) end
+    local t = list[id]
+    if not t or not t.board or me.id ~= id then return end
+    local ped = PlayerPedId()
+    Tables.sit(ped, t, chair)
+    Wait(900)
     Tables.holdCards(ped)
     Tables.camera()
+    -- look down at the board to start with; after that, you look where you like
+    for _ = 1, 30 do
+      Tables.aimAtBoard()
+      Wait(0)
+    end
     Nui.open(Tables.context())
   end)
 end
@@ -248,6 +259,11 @@ end
 
 -------------------------------------------------------------------------------------------
 -- the cursor
+
+--- What you are looking at on your table: the middle of the screen.
+function Tables.gaze()
+  return Tables.pick(0.5, 0.5)
+end
 
 --- What the cursor (0..1 on screen) points at on your table.
 function Tables.pick(x, y)
@@ -282,6 +298,9 @@ end
 
 --- Hold the hand in front of the chest, both hands: an upper-body pose that plays over the
 --- seated one (a secondary task), so the player stays in the chair.
+-- the holding pose each body plays, and until when a reach takes its place
+local holding, reaching = {}, {}
+
 function Tables.holdCards(ped)
   for _, a in ipairs(Config.HoldAnims) do
     if DoesAnimDictExist(a[1]) then
@@ -291,7 +310,7 @@ function Tables.holdCards(ped)
       if HasAnimDictLoaded(a[1]) then
         -- 49 = loop + upper body + secondary: the arms hold, the seat keeps the legs
         TaskPlayAnim(ped, a[1], a[2], 4.0, 4.0, -1, 49, 0.0, false, false, false)
-        RemoveAnimDict(a[1])
+        holding[ped] = a
         return true
       end
     end
@@ -306,10 +325,11 @@ local function handOf(ped)
   local l = GetPedBoneCoords(ped, 18905, 0.0, 0.0, 0.0)
   local r = GetPedBoneCoords(ped, 57005, 0.0, 0.0, 0.0)
   local mid = vector3((l.x + r.x) / 2, (l.y + r.y) / 2, (l.z + r.z) / 2)
-  -- the hands in front of the chest hold the fan; resting in the lap, it goes where they would be
-  local held = #(mid - head) < 0.62 and mid.z > head.z - 0.55
-  local anchor = held and vector3(mid.x + fwd.x * 0.03, mid.y + fwd.y * 0.03, mid.z + 0.02)
-    or vector3(head.x + fwd.x * 0.34, head.y + fwd.y * 0.34, head.z - 0.26)
+  -- the cards are held in front of the chest, low, where your eyes look down at them: in the
+  -- hands when the holding pose has them there, else where the hands would be
+  local rest = vector3(head.x + fwd.x * 0.3, head.y + fwd.y * 0.3, head.z - 0.3)
+  local held = #(mid - rest) < 0.22
+  local anchor = held and vector3((mid.x + rest.x) / 2, (mid.y + rest.y) / 2, (mid.z + rest.z) / 2 + 0.03) or rest
   return { anchor = { anchor.x, anchor.y, anchor.z }, head = { head.x, head.y, head.z + 0.04 } }
 end
 
@@ -352,6 +372,7 @@ function Tables.act(id, act)
     while not HasAnimDictLoaded(REACH[1]) and GetGameTimer() - t0 < 1500 do Wait(10) end
     if not HasAnimDictLoaded(REACH[1]) then return end
     -- 48 = upper body + secondary: the arm reaches, the seat keeps the legs
+    reaching[ped] = GetGameTimer() + 1000
     TaskPlayAnim(ped, REACH[1], REACH[2], 6.0, 4.0, 900, 48, act.kind == 'draw' and 0.15 or 0.0, false, false, false)
     SetTimeout(950, function()
       if DoesEntityExist(ped) then Tables.holdCards(ped) end
@@ -404,8 +425,8 @@ local function placeCharacter(t, chair)
     SetBlockingOfNonTemporaryEvents(ped, true)
     SetPedCanRagdoll(ped, false)
     SetPedFleeAttributes(ped, 0, false)
-    TaskStartScenarioAtPosition(ped, Config.SitScenario, pos.x, pos.y, pos.z + Config.SeatHeight, facing, 0, true, true)
     t.npc = { chair = chair, ped = ped }
+    Tables.sit(ped, t, chair)
     Wait(1200)
     if DoesEntityExist(ped) then Tables.holdCards(ped) end
   end)
@@ -419,6 +440,32 @@ local function tendCharacter(t)
   end
   if not t.npc or (t.npc.chair ~= chair and not t.npc.loading) then placeCharacter(t, chair) end
 end
+
+-- The seat's animation can drop the holding pose: put it back whenever it has gone.
+local function keepHolding(ped)
+  if not ped or not DoesEntityExist(ped) then return end
+  if (reaching[ped] or 0) > GetGameTimer() then return end
+  local a = holding[ped]
+  if not a or not IsEntityPlayingAnim(ped, a[1], a[2], 3) then Tables.holdCards(ped) end
+end
+
+CreateThread(function()
+  while true do
+    Wait(1500)
+    if me.id then
+      local ped, t = PlayerPedId(), Tables.mine()
+      -- still in the chair: GTA can stand a player up (a bump, a key); sit them back down
+      if t and t.board and not IsPedUsingScenario(ped, Config.SitScenario) and not IsPedRagdoll(ped) then
+        Tables.sit(ped, t, me.chair)
+        Tables.holdCards(ped)
+      end
+      keepHolding(ped)
+    end
+    for _, t in pairs(list) do
+      if t.npc and t.npc.ped then keepHolding(t.npc.ped) end
+    end
+  end
+end)
 
 -- build and clear props by distance, and tell the page which games to follow
 CreateThread(function()
@@ -453,7 +500,6 @@ CreateThread(function()
             sleep = 0
             t.board:setHands(handsAt(t))
             t.board:draw(Render, now)
-            if me.id == t.def.id and camMode == 'first' then Tables.camera() end
             -- the names at each chair, for whoever stands around
             if d < 9.0 and me.id ~= t.def.id then
               local v = t.view
