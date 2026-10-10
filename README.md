@@ -35,6 +35,10 @@ Players need an internet connection: the game runs on www.smashandclash.in.
 4. Put this resource in the server's `resources` folder, `ensure smashandclash` and your key (`sv_licenseKey`) in `server.cfg`, and start `cfx-server.exe`.
 5. In FiveM, connect to `localhost`. Walk to the blip at Legion Square, or press F7 anywhere.
 
+### The local server in this folder
+
+`server/` (not in git) holds a ready Cfx Server for FiveM for GTAV Enhanced: the server in `server/bin`, Cfx's stock resources and this resource (linked, so `npm run build` updates it) in `server/data/resources`, and `server/data/server.cfg`. Put your key in `server/data/license.cfg`, run `server/start.bat`, then in FiveM for GTAV Enhanced press F8 and type `connect localhost`. It only accepts this PC (127.0.0.1); change both `endpoint_add` lines to `0.0.0.0:30120` to let friends on your network join.
+
 ## Develop
 
 ```bash
